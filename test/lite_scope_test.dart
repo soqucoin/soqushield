@@ -423,6 +423,25 @@ void main() {
       }
     });
 
+    test('the host scan catches an address literal and a host outside the '
+        'allowlist, and accepts every allowed host', () {
+      // The attack: an infrastructure address or a removed feature's host
+      // creeping into a source file.
+      expect(_ipv4Pattern.hasMatch("const origin = '203.0.113.7';"), isTrue);
+      expect(_ipv4Pattern.hasMatch('version 2.5.0+26'), isFalse);
+      final foreign = _hostPattern
+          .allMatches("Uri.https('relay.example.org', '/api')")
+          .map((m) => m.group(0))
+          .toList();
+      expect(foreign, ['relay.example.org']);
+      expect(_allowedHosts, isNot(contains('relay.example.org')));
+      for (final host in _allowedHosts) {
+        expect(_hostPattern.allMatches("'https://$host/x'").map((m) => m.group(0)),
+            [host],
+            reason: '$host is read back whole');
+      }
+    });
+
     test('the pool API host is named only by the weather service', () {
       final files = Directory('lib')
           .listSync(recursive: true)
