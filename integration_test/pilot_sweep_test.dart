@@ -24,6 +24,7 @@ void main() {
     '/send': 'Send',
     '/receive': 'Receive',
     '/activity': 'Activity',
+    '/network': 'Network',
     '/settings': 'Settings',
     '/guide': 'Field Manual',
     '/guide/send': 'Field Manual article',

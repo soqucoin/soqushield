@@ -81,13 +81,17 @@ class AuthNotifier extends AsyncNotifier<AuthStatus> {
     state = const AsyncData(AuthStatus.authenticated);
   }
 
-  /// Called when app returns from background / on inactivity timeout (re-lock).
+  /// Called when the app returns from the background and on the inactivity
+  /// timeout: an authenticated wallet locks, regardless of the biometric
+  /// toggle (SB-5); the lock screen then requires a biometric or the device
+  /// passcode to get back in.
   ///
-  /// SB-5: locks whenever a wallet exists, regardless of the biometric *toggle*.
-  /// The lock screen then requires biometric or device passcode to get back in.
+  /// The state is the guard, not a storage read. A read that fails once, or
+  /// a wallet with no account record beside it, must not leave an unlocked
+  /// wallet unlocked; a launch without a wallet is routed by [build], which
+  /// treats wallet presence as the source of truth.
   Future<void> lock() async {
-    final service = ref.read(authServiceProvider);
-    if (await service.hasAccount()) {
+    if (state case AsyncData(value: AuthStatus.authenticated)) {
       state = const AsyncData(AuthStatus.locked);
     }
   }
