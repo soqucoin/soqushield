@@ -51,18 +51,10 @@ android {
         release {
             // Release builds MUST be release-signed. The old fallback silently
             // produced debug-signed "release" APKs when key.properties was
-            // missing; a release build fails instead. A debug build needs no
-            // keystore, so a fresh clone can run one: the check applies to
-            // every requested task that is not a debug task.
-            val debugOnly = gradle.startParameter.taskNames.isNotEmpty() &&
-                gradle.startParameter.taskNames.all { it.contains("Debug", ignoreCase = true) }
-            if (!keystorePropertiesFile.exists()) {
-                if (!debugOnly) {
-                    throw GradleException(
-                        "key.properties not found: release builds must be release-signed. " +
-                        "Provide android/key.properties.")
-                }
-            } else {
+            // missing; a release build fails instead (the check below, on the
+            // task graph). A debug build, `gradlew tasks` and an IDE sync need
+            // no keystore, so a fresh clone can run them.
+            if (keystorePropertiesFile.exists()) {
                 signingConfig = signingConfigs.getByName("release")
             }
             isMinifyEnabled = true
@@ -71,6 +63,26 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+        }
+    }
+}
+
+// Without the keystore, a build that packages the release variant stops
+// before its first task runs. The task graph is the test, not the requested
+// task names: `clean assembleDebug` names no debug task in `clean`, and an
+// IDE sync or `gradlew tasks` names none at all. The test is the packaging
+// tasks of the release variant, since `clean` itself pulls in the variant's
+// native-build clean, which packages nothing.
+if (!keystorePropertiesFile.exists()) {
+    val packaging = listOf("assemble", "bundle", "package", "sign", "install")
+    gradle.taskGraph.whenReady {
+        val release = allTasks.map { it.name }.distinct().filter { name ->
+            name.contains("Release") && packaging.any { name.startsWith(it) }
+        }
+        if (release.isNotEmpty()) {
+            throw GradleException(
+                "key.properties not found: release builds must be release-signed. " +
+                "Provide android/key.properties. Release tasks in this build: $release")
         }
     }
 }
