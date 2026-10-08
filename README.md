@@ -42,7 +42,7 @@ flutter pub get
 sh native/dilithium/build_cli_dylib.sh    # once: the host library the test suite loads
 flutter analyze
 flutter test
-flutter build apk --debug                 # a release build needs your own keystore in android/key.properties
+flutter build apk --debug                 # a release build refuses without a keystore named in android/key.properties
 ```
 
 ## Layout

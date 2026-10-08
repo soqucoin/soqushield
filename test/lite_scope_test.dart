@@ -4,9 +4,9 @@
 // the route table, the landing route after splash and after unlock, the receive
 // QR payload, the welcome screen's two actions, the surfaces the home, settings,
 // shell and drawer no longer carry, the Field Manual's categories and copy, the
-// hosts the source may name (and no other, and no address literal), the
-// absence of every removed scheme, dependency and screen from the source
-// tree, and the release version.
+// hosts a string literal under lib/ may name (and no other, and no IPv4
+// literal anywhere under lib/), the absence of every removed scheme,
+// dependency and screen from the source tree, and the release version.
 
 import 'dart:io';
 
@@ -40,10 +40,13 @@ const _mainnetAddress =
 const _stagenetAddress =
     'ssq1p3j6nd46xrh8vl8ac86x8sm4dlynv95ckpyn5y4d46kte8js05k2qvft6ee';
 
-/// Every network host the app source may name. The source-tree test extracts
-/// each dotted hostname under lib/ and refuses any other, and refuses any IPv4
-/// literal, so a removed feature's endpoint cannot creep back and no
-/// infrastructure address sits in the tree.
+/// Every network host a string literal under lib/ may name. The source-tree
+/// test reads every string literal (comments and interpolations skipped),
+/// takes each dotted name in it whole, whatever its last label, and refuses
+/// any that is not on this list or a known file name; it also refuses any
+/// IPv4 literal anywhere under lib/. So a removed feature's endpoint cannot
+/// creep back under any top-level domain and no infrastructure address sits
+/// in the tree. A name assembled from pieces at run time is not seen.
 const _allowedHosts = {
   'mainnet-api.soqu.org',
   'mainnet-rpc.soqu.org',
@@ -54,8 +57,87 @@ const _allowedHosts = {
   'discord.gg',
 };
 
-final _hostPattern = RegExp(r'\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:org|com|dev|gg|net|io|app|me|co)\b');
+/// The last labels of the dotted names in string literals that are files:
+/// import paths, the native libraries, an asset.
+const _fileExtensions = {'dart', 'png', 'so', 'dylib', 'framework', 'sh'};
+
+/// A dotted name, read whole: labels of letters, digits, underscores and
+/// hyphens, at least one dot, a last label of letters only.
+final _dottedName = RegExp(
+    r'(?<![a-z0-9_.-])[a-z0-9_-]+(?:\.[a-z0-9_-]+)*\.[a-z]{2,}(?![a-z0-9_.-])');
 final _ipv4Pattern = RegExp(r'\b[0-9]{1,3}(?:\.[0-9]{1,3}){3}\b');
+
+/// The bodies of the string literals in Dart [source]: comments skipped,
+/// escapes and interpolations blanked, raw and triple-quoted strings read.
+List<String> stringLiterals(String source) {
+  final out = <String>[];
+  final n = source.length;
+  var i = 0;
+  while (i < n) {
+    if (source.startsWith('//', i)) {
+      final j = source.indexOf('\n', i);
+      i = j < 0 ? n : j + 1;
+      continue;
+    }
+    if (source.startsWith('/*', i)) {
+      final j = source.indexOf('*/', i + 2);
+      i = j < 0 ? n : j + 2;
+      continue;
+    }
+    final c = source[i];
+    if (c == "'" || c == '"') {
+      final raw = i > 0 && source[i - 1] == 'r';
+      final q = source.startsWith(c * 3, i) ? c * 3 : c;
+      i += q.length;
+      final buf = StringBuffer();
+      while (i < n && !source.startsWith(q, i)) {
+        final ch = source[i];
+        if (!raw && ch == r'\') {
+          buf.write(' ');
+          i += 2;
+          continue;
+        }
+        if (!raw && ch == r'$') {
+          if (i + 1 < n && source[i + 1] == '{') {
+            var depth = 0;
+            i += 1;
+            while (i < n) {
+              if (source[i] == '{') depth++;
+              if (source[i] == '}') {
+                depth--;
+                if (depth == 0) {
+                  i++;
+                  break;
+                }
+              }
+              i++;
+            }
+          } else {
+            i++;
+            while (i < n && RegExp(r'[A-Za-z0-9_]').hasMatch(source[i])) {
+              i++;
+            }
+          }
+          buf.write(' ');
+          continue;
+        }
+        buf.write(ch);
+        i++;
+      }
+      i += q.length;
+      out.add(buf.toString());
+      continue;
+    }
+    i++;
+  }
+  return out;
+}
+
+/// The dotted names in the string literals of [dart], lowercased.
+List<String> dottedNames(String dart) => stringLiterals(dart)
+    .expand((b) => _dottedName.allMatches(b.toLowerCase()))
+    .map((m) => m.group(0)!)
+    .toList();
 
 /// Packages that leave with the removed features.
 const _removedPackages = [
@@ -406,16 +488,20 @@ void main() {
   });
 
   group('source tree', () {
-    test('names only the allowed hosts, no address literal, no pay scheme, no SDK import under lib/', () {
+    test('every dotted name in a string literal under lib/ is an allowed host '
+        'or a known file name; no IPv4 literal, pay scheme or SDK import '
+        'anywhere under lib/', () {
       final files = Directory('lib')
           .listSync(recursive: true)
           .whereType<File>()
           .where((f) => f.path.endsWith('.dart'));
       for (final f in files) {
         final src = _read(f.path);
-        for (final m in _hostPattern.allMatches(src.toLowerCase())) {
-          expect(_allowedHosts, contains(m.group(0)),
-              reason: '${f.path} names ${m.group(0)}, which is not a host the app may call');
+        for (final name in dottedNames(src)) {
+          final last = name.substring(name.lastIndexOf('.') + 1);
+          if (_fileExtensions.contains(last)) continue;
+          expect(_allowedHosts, contains(name),
+              reason: '${f.path} names $name, which is not on the allowlist');
         }
         expect(_ipv4Pattern.hasMatch(src), isFalse, reason: '${f.path} carries an IPv4 literal');
         expect(src, isNot(contains('soqushield://')), reason: '${f.path} still builds the pay link');
@@ -423,21 +509,31 @@ void main() {
       }
     });
 
-    test('the host scan catches an address literal and a host outside the '
-        'allowlist, and accepts every allowed host', () {
-      // The attack: an infrastructure address or a removed feature's host
-      // creeping into a source file.
+    test('the literal scan reads a name whole under any last label, skips '
+        'comments and interpolations, catches an address literal, and reads '
+        'every allowed host back', () {
+      // The attacks: a removed host under an unlisted top-level domain, an
+      // allowed host as the prefix or the suffix of a longer name, a host
+      // that differs in case, a host in a comment, an infrastructure address.
+      expect(dottedNames("final u = 'https://pump.fun/x';"), ['pump.fun']);
+      expect(dottedNames("Uri.https('mainnet-api.soqu.org.attacker.xyz', '/')"),
+          ['mainnet-api.soqu.org.attacker.xyz']);
+      expect(dottedNames("'https://evil_host.mainnet-api.soqu.org/'"),
+          ['evil_host.mainnet-api.soqu.org']);
+      expect(dottedNames("'Relay.Example.ORG'"), ['relay.example.org']);
+      expect(dottedNames("// see docs.flutter.dev\nfinal x = 1;"), isEmpty,
+          reason: 'a comment is not a literal');
+      expect(dottedNames("/* docs.flutter.dev */ final x = 'a.bc';"), ['a.bc']);
+      expect(dottedNames(r"'\${a}pump.fun'"), ['pump.fun'],
+          reason: 'what follows an interpolation is still read');
+      expect(dottedNames(r"'it\'s api.soqupool.com'"), ['api.soqupool.com'],
+          reason: 'an escaped quote does not end the literal');
+      expect(dottedNames('"x" + "y.dart" + r"z.png"'), ['y.dart', 'z.png']);
+      expect(_fileExtensions, containsAll(['dart', 'png']));
       expect(_ipv4Pattern.hasMatch("const origin = '203.0.113.7';"), isTrue);
       expect(_ipv4Pattern.hasMatch('version 2.5.0+26'), isFalse);
-      final foreign = _hostPattern
-          .allMatches("Uri.https('relay.example.org', '/api')")
-          .map((m) => m.group(0))
-          .toList();
-      expect(foreign, ['relay.example.org']);
-      expect(_allowedHosts, isNot(contains('relay.example.org')));
       for (final host in _allowedHosts) {
-        expect(_hostPattern.allMatches("'https://$host/x'").map((m) => m.group(0)),
-            [host],
+        expect(dottedNames("'https://$host/x'"), [host],
             reason: '$host is read back whole');
       }
     });
