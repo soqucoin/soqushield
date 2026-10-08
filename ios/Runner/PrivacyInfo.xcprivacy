@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SoquShield — App Privacy Manifest (Apple privacy manifest, required for App Store upload).
+
+  ⚠️ STUBBED FOR SIGN-OFF. The values below are drafted from a code audit (2026-06-24); the
+  items flagged with "SIGN-OFF" must be confirmed by the company before submission. See
+  ~/soqucoin-ops/security/SOQUSHIELD_STORE_PRIVACY_SIGNOFF_2026-06-24.md for the full
+  determination log and the rationale behind each value.
+
+  Audit basis:
+    • No analytics / tracking / crash SDK is present (no Firebase/Sentry/Amplitude/etc.) →
+      NSPrivacyTracking = false, no tracking domains.
+    • No sign-in of any kind since 2.2.0: no account, no identifier leaves the device. So no
+      first-party collected-data types are declared.
+    • Required-reason APIs: the first-party Dart code uses UserDefaults via shared_preferences
+      (CA92.1 — access info stored by this app). Plugin pods (path_provider,
+      shared_preferences, etc.) ship their OWN PrivacyInfo.xcprivacy and cover their own APIs.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The app does NOT track users (no cross-app/cross-site tracking, no ATT). -->
+	<key>NSPrivacyTracking</key>
+	<false/>
+
+	<!-- No domains contacted for tracking. -->
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+
+	<!--
+	  Data types collected by FIRST-PARTY code and linked to the user / sent off-device.
+	  Empty per the audit: on-chain wallet data is pseudonymous and goes to infrastructure
+	  endpoints, not an identity-linked profile.
+	  SIGN-OFF (the company): if ANY of these are sent to a SoquShield-operated backend and
+	  linked to the user, add the matching entry here before submission —
+	    • email      → NSPrivacyCollectedDataTypeEmailAddress
+	    • name       → NSPrivacyCollectedDataTypeName
+	    • account ID → NSPrivacyCollectedDataTypeUserID
+	    • wallet/financial data tied to identity → NSPrivacyCollectedDataTypeOtherFinancialInfo
+	  each with NSPrivacyCollectedDataTypeLinked=true, Tracking=false, and purpose
+	  NSPrivacyCollectedDataTypePurposeAppFunctionality.
+	-->
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+
+	<!--
+	  Required-reason API declarations for first-party usage. UserDefaults (CA92.1) covers the
+	  Flutter engine + shared_preferences reading/writing this app's own stored values.
+	  SIGN-OFF: confirm the aggregate (this manifest + each pod's PrivacyInfo) covers every
+	  required-reason API category Apple flags at upload; add FileTimestamp/DiskSpace/
+	  SystemBootTime here only if a first-party path uses them outside a plugin that declares it.
+	-->
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>CA92.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

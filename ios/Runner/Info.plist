@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Render with Skia, not Impeller: Impeller rasterizes small glyphs into its
+	     atlas without proper anti-aliasing, so small mono labels stairstep
+	     ("retro bitmap" aliasing) while large text is fine. Skia anti-aliases
+	     small text correctly. Text crispness matters more here than Impeller's
+	     animation edge (the figures still run smoothly). -->
+	<key>FLTEnableImpeller</key>
+	<false/>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+	<!-- Export-compliance encryption declaration (mandatory at every App Store upload).
+	     STUBBED FOR SIGN-OFF (the company and counsel): set to false on the determination that
+	     this build uses only EXEMPT encryption — HTTPS/TLS, the platform Keychain, the AES-GCM
+	     backup file under a user password, and ML-DSA-44 digital signatures (signing, not
+	     encryption). See SOQUSHIELD_STORE_PRIVACY_SIGNOFF_2026-06-24.md. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>SoquShield</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>SoquShield</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(FLUTTER_BUILD_NAME)</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+	<key>CFBundleVersion</key>
+	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>UIWindowSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneClassName</key>
+					<string>UIWindowScene</string>
+					<key>UISceneConfigurationName</key>
+					<string>flutter</string>
+					<key>UISceneDelegateClassName</key>
+					<string>$(PRODUCT_MODULE_NAME).SceneDelegate</string>
+					<key>UISceneStoryboardFile</key>
+					<string>Main</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
+	<key>UIUserInterfaceStyle</key>
+	<string>Dark</string>
+	<key>UIMainStoryboardFile</key>
+	<string>Main</string>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>NSFaceIDUsageDescription</key>
+	<string>SoquShield uses Face ID to protect your quantum-safe wallet.</string>
+	<!-- NSCameraUsageDescription removed 2026-06-24: the app has no QR scanner (only
+	     qr_flutter generation) — declaring an unused camera permission is an App Review risk.
+	     Re-add this string if/when a receive-by-scan QR scanner is implemented. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<!-- ATS fully enforced — no exception domains. NSAllowsArbitraryLoads removed (SB-9);
+		     every endpoint is HTTPS with a valid CA cert: the per-network RPC proxies and the
+		     ElectrumX REST workers. -->
+	</dict>
+</dict>
+</plist>
