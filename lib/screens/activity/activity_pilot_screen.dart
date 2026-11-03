@@ -13,6 +13,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../theme/instrument.dart';
+import '../../theme/fmt.dart';
+import '../../providers/display_prefs_provider.dart';
+import '../../providers/price_provider.dart';
 import '../../providers/wallet_provider.dart';
 
 class ActivityPilotScreen extends ConsumerStatefulWidget {
@@ -60,6 +63,12 @@ class _ActivityPilotScreenState extends ConsumerState<ActivityPilotScreen> {
     // under an eyebrow date header — TODAY / YESTERDAY / 'JUL 3' (year only
     // when not current). Items list interleaves String headers and _Entry rows.
     final items = <Object>[];
+    // One quiet line, once, above the feed: the dollar figures on these rows
+    // are today's price applied to an old amount, not what the payment was
+    // worth when it happened. Only shown when there are dollar figures to
+    // qualify — on stagenet, or with no price, the feed reads as before.
+    final showingFiat = ref.watch(livePriceProvider) != null;
+    if (showingFiat && timeline.isNotEmpty) items.add(const _FiatCaveat());
     String? lastDay;
     for (final e in timeline) {
       final day = _dayLabel(e.timestamp);
@@ -92,6 +101,7 @@ class _ActivityPilotScreenState extends ConsumerState<ActivityPilotScreen> {
                         separatorBuilder: (_, _) => const SizedBox(height: 2),
                         itemBuilder: (_, i) {
                           final it = items[i];
+                          if (it is _FiatCaveat) return _fiatCaveat();
                           return it is String
                               ? _dayHeader(it, first: i == 0)
                               : _row(it as _Entry);
@@ -125,6 +135,16 @@ class _ActivityPilotScreenState extends ConsumerState<ActivityPilotScreen> {
   Widget _dayHeader(String label, {required bool first}) => Padding(
         padding: EdgeInsets.only(top: first ? 4 : 18, bottom: 8),
         child: Text(label, style: Instrument.eyebrow(size: 10)),
+      );
+
+  /// The one line that keeps the dollar figures below honest.
+  Widget _fiatCaveat() => const Padding(
+        padding: EdgeInsets.only(top: 2, bottom: 10),
+        child: Text(
+          'Dollar figures are at today’s price, not the price at the time.',
+          style: TextStyle(
+              color: Instrument.faint, fontSize: 10.5, height: 1.3),
+        ),
       );
 
   Widget _topBar() => Padding(
@@ -217,6 +237,14 @@ class _ActivityPilotScreenState extends ConsumerState<ActivityPilotScreen> {
 
   Widget _row(_Entry e) {
     final inbound = e.inbound;
+    // ⛔ TODAY's price, not the price when this transaction happened — the app
+    // stores no historical rate, and CoinGecko's historical endpoint is a paid
+    // tier. That makes every figure here a "what this would be worth now",
+    // which is why the list carries [_fiatCaveat] above it rather than letting
+    // the number pass as a record of what the payment was worth at the time.
+    final masked = ref.watch(hideBalancesProvider);
+    final currency = ref.watch(fiatCurrencyProvider);
+    final value = ref.watch(livePriceProvider)?.valueOf(e.amountSoq);
 
     // Every row copies its hash (the long-standing telemetry-row gesture).
     void onTap() {
@@ -260,11 +288,27 @@ class _ActivityPilotScreenState extends ConsumerState<ActivityPilotScreen> {
               ],
             ),
             const Spacer(),
-            Text(e.amountLabel,
-                style: TextStyle(
-                    color: inbound ? Instrument.readout : Instrument.label,
-                    fontSize: 13.5,
-                    fontFamily: kMono)),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(masked ? e.maskedLabel : e.amountLabel,
+                    style: TextStyle(
+                        color: inbound ? Instrument.readout : Instrument.label,
+                        fontSize: 13.5,
+                        fontFamily: kMono)),
+                if (value != null) ...[
+                  const SizedBox(height: 2),
+                  Text(masked
+                          ? maskedMoney(currency)
+                          : fmtMoney(value, currency),
+                      style: const TextStyle(
+                          color: Instrument.faint,
+                          fontSize: 10.5,
+                          fontFamily: kMono)),
+                ],
+              ],
+            ),
             const SizedBox(width: 6),
             const Icon(Icons.chevron_right_rounded,
                 size: 14, color: Instrument.faint),
@@ -281,12 +325,24 @@ class _Entry {
   final String label;
   final bool inbound;
   final String amountLabel;
+
+  /// The row's size in SOQ, kept beside the formatted label so the row can be
+  /// priced at render time without re-parsing its own display string.
+  final double amountSoq;
+
+  /// What the row shows when balances are hidden. The direction and the
+  /// ticker stay — "you sent something" is not the secret, the size is.
+  String get maskedLabel {
+    final sign = inbound ? '+' : '−';
+    return '$sign$maskedAmount SOQ';
+  }
   final String txid;
   const _Entry({
     required this.timestamp,
     required this.label,
     required this.inbound,
     required this.amountLabel,
+    required this.amountSoq,
     required this.txid,
   });
 
@@ -304,6 +360,7 @@ class _Entry {
       label: label,
       inbound: inbound,
       amountLabel: '$sign$amt SOQ',
+      amountSoq: tx.amount,
       txid: tx.txid,
     );
   }
@@ -318,4 +375,9 @@ class _Entry {
     }
     return '${timestamp.month}/${timestamp.day}/${timestamp.year}';
   }
+}
+
+/// List marker for the one-line "today's price" qualifier above the feed.
+class _FiatCaveat {
+  const _FiatCaveat();
 }

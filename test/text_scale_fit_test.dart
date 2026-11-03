@@ -37,6 +37,8 @@ import 'package:soqushield/screens/settings/settings_pilot_screen.dart';
 import 'package:soqushield/services/weather_service.dart';
 import 'package:soqushield/widgets/seed_word_grid.dart';
 
+import 'package:soqushield/services/auth_service.dart' show AuthOutcome;
+
 import 'lite_test_support.dart';
 
 const _mainnetAddress =
@@ -70,6 +72,14 @@ class _PendingAuthService extends FakeAuthService {
     prompts++;
     return Completer<bool>().future;
   }
+
+  /// The lock screen asks through [authenticate], which reports HOW the
+  /// attempt ended; this must hang too or the screen unlocks and moves on.
+  @override
+  Future<AuthOutcome> authenticate() {
+    prompts++;
+    return Completer<AuthOutcome>().future;
+  }
 }
 
 Widget _scoped(WalletState wallet, Widget child) => ProviderScope(
@@ -78,6 +88,8 @@ Widget _scoped(WalletState wallet, Widget child) => ProviderScope(
             .overrideWith(() => MockAuthNotifier(AuthStatus.authenticated)),
         authServiceProvider.overrideWithValue(_PendingAuthService()),
         sessionProvider.overrideWith(MockSessionNotifier.new),
+        quietPrice,
+        quietDisplayPrefs,
         walletProvider.overrideWith(() => MockWalletNotifier(wallet)),
         networkStatsProvider.overrideWith((ref) => const AsyncData(
             NetworkStats(blocks: 1234, peers: 8, reachable: true))),

@@ -86,6 +86,8 @@ Widget _screen(
             .overrideWith(() => MockAuthNotifier(AuthStatus.authenticated)),
         authServiceProvider.overrideWithValue(FakeAuthService()),
         sessionProvider.overrideWith(MockSessionNotifier.new),
+        quietPrice,
+        quietDisplayPrefs,
         walletProvider.overrideWith(() => MockWalletNotifier(_wallet())),
         mainnetSeenLiveProvider.overrideWith(_SeenLive.new),
         chainWeatherProvider.overrideWith((ref) => chain == null

@@ -29,7 +29,9 @@ import '../../theme/figures.dart';
 import '../../theme/fmt.dart';
 import '../../theme/motion.dart';
 import '../../models/wallet_keys.dart';
+import '../../providers/display_prefs_provider.dart';
 import '../../providers/launch_state_provider.dart';
+import '../../providers/price_provider.dart';
 import '../../providers/wallet_provider.dart';
 import '../../providers/network_provider.dart';
 import '../../providers/weather_provider.dart';
@@ -43,7 +45,6 @@ class HomePilotScreen extends ConsumerStatefulWidget {
 
 class _HomePilotScreenState extends ConsumerState<HomePilotScreen>
     with TickerProviderStateMixin, InstrumentFigureMixin {
-  bool _masked = false;
 
   /// The lock-on after a heartbeat: when the billet a new block sent reaches
   /// the chain node, brackets frame the height it carried, then fade.
@@ -105,11 +106,15 @@ class _HomePilotScreenState extends ConsumerState<HomePilotScreen>
     }
   }
 
+  /// Tapping the readout hides every balance figure, app-wide and for good —
+  /// not just this readout until you switch tabs. Someone who hides their
+  /// balance to hand the phone over means it to STAY hidden.
+  ///
+  /// The hero figure shows no balance (key custody and chain state are not
+  /// private), so there is nothing for it to react to — no fireFigure.
   void _toggleMask() {
-    // Masking only affects the HOLDINGS readout — the figure shows no
-    // balance (key custody + chain state aren't private), so no fireFigure.
     HapticFeedback.selectionClick();
-    setState(() => _masked = !_masked);
+    ref.read(displayPrefsProvider.notifier).toggleHideBalances();
   }
 
   Future<void> _refresh() async {
@@ -167,9 +172,9 @@ class _HomePilotScreenState extends ConsumerState<HomePilotScreen>
     final mainnetWaiting = mainnetDown && !seenLive;
     final mainnetReconnecting = mainnetDown && seenLive;
 
-    final total = _masked
-        ? '••••••'
-        : wallet.displayBalance.toStringAsFixed(2);
+    final masked = ref.watch(hideBalancesProvider);
+    final total =
+        masked ? '••••••' : wallet.displayBalance.toStringAsFixed(2);
 
     return Scaffold(
       backgroundColor: Instrument.void0,
@@ -212,7 +217,11 @@ class _HomePilotScreenState extends ConsumerState<HomePilotScreen>
               ),
             ),
             const SizedBox(height: 28),
-            // ── HOLDINGS readout — tap to mask ──
+            // ── HOLDINGS readout ──
+            // The eye beside the label is the affordance people look for;
+            // tapping the figure itself does the same thing, for anyone who
+            // reaches for the number. The tap alone used to be the ONLY way,
+            // which meant nobody found it.
             GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: _toggleMask,
@@ -220,9 +229,18 @@ class _HomePilotScreenState extends ConsumerState<HomePilotScreen>
                 label: 'HOLDINGS · ${wallet.network.ticker}',
                 value: total,
                 unit: wallet.network.ticker,
+                labelAction: InstrumentEye(
+                  hidden: masked,
+                  onTap: _toggleMask,
+                ),
               ),
             ),
-            if (wallet.hasPendingTx && !_masked) ...[
+            // The same holdings in the owner's currency. Absent on stagenet
+            // (tSOQ has no market), absent while the price is unknown or
+            // stale, and masked with the figure above it — otherwise one tap
+            // hides the balance and the line underneath hands it back.
+            _fiatLine(wallet.displayBalance),
+            if (wallet.hasPendingTx && !masked) ...[
               const SizedBox(height: 10),
               _pendingLine(wallet),
             ],
@@ -263,6 +281,41 @@ class _HomePilotScreenState extends ConsumerState<HomePilotScreen>
               color: Instrument.faint, fontSize: 10.5, height: 1.2),
         ),
       );
+
+  /// The holdings line in dollars, under the SOQ readout.
+  ///
+  /// On Mainnet the slot is reserved whether or not a price has landed yet, so
+  /// the first quote arriving a second after the balance does not shove the
+  /// trust badge, the buttons and the whole feed down the screen. On Stagenet
+  /// there is never a price, so the slot is not reserved at all.
+  Widget _fiatLine(double soq) {
+    // The network rule itself is livePriceProvider's; this check is only about
+    // whether to reserve the slot, which is wasted space on stagenet.
+    final network = ref.watch(walletProvider.select((w) => w.network));
+    if (network != SoqNetwork.mainnet) return const SizedBox.shrink();
+
+    final price = ref.watch(livePriceProvider);
+    final currency = ref.watch(fiatCurrencyProvider);
+    final masked = ref.watch(hideBalancesProvider);
+    final value = price?.valueOf(soq);
+    final change = price?.change24hPct;
+
+    return SizedBox(
+      height: 26,
+      child: Center(
+        child: value == null
+            ? const SizedBox.shrink()
+            : InstrumentFiat(
+                value: masked
+                    ? maskedMoney(currency)
+                    : fmtMoney(value, currency),
+                // The change is a property of the holding, so it goes too.
+                change: (masked || change == null) ? null : fmtPct(change),
+                up: (change ?? 0) >= 0,
+              ),
+      ),
+    );
+  }
 
   Widget _pendingLine(WalletState wallet) {
     final sign = wallet.pendingBalance > 0 ? '+' : '';
@@ -314,7 +367,17 @@ class _HomePilotScreenState extends ConsumerState<HomePilotScreen>
 
   // ── the scrolling feed: the asset, the address, the backup nudge ──
   Widget _feed(WalletState wallet) {
-    String n(double v, int dp) => _masked ? '••••' : v.toStringAsFixed(dp);
+    final masked = ref.watch(hideBalancesProvider);
+    String n(double v, int dp) =>
+        masked ? maskedAmount : v.toStringAsFixed(dp);
+
+    // The asset row's money sub-line follows the same rule as the hero's:
+    // mainnet only, fresh price only, and masked with the figure it sits under.
+    final currency = ref.watch(fiatCurrencyProvider);
+    final value = ref.watch(livePriceProvider)?.valueOf(wallet.displayBalance);
+    final assetFiat = value == null
+        ? null
+        : (masked ? maskedMoney(currency) : fmtMoney(value, currency));
 
     return RefreshIndicator(
       onRefresh: _refresh,
@@ -334,6 +397,7 @@ class _HomePilotScreenState extends ConsumerState<HomePilotScreen>
             markColor: Instrument.soq,
             name: wallet.network.ticker,
             balance: n(wallet.displayBalance, 2),
+            subValue: assetFiat,
             onTap: () => context.go('/send'),
           ),
           const SizedBox(height: 18),
@@ -459,12 +523,17 @@ class _AssetRow extends StatelessWidget {
   final Color markColor;
   final String name;
   final String balance;
+
+  /// The same holding in dollars, under the SOQ figure. Null on stagenet and
+  /// whenever there is no fresh price — the row then reads exactly as before.
+  final String? subValue;
   final VoidCallback? onTap;
   const _AssetRow({
     required this.mark,
     required this.markColor,
     required this.name,
     required this.balance,
+    this.subValue,
     this.onTap,
   });
   @override
@@ -486,11 +555,25 @@ class _AssetRow extends StatelessWidget {
                       fontSize: 14,
                       fontWeight: FontWeight.w500)),
               const Spacer(),
-              Text(balance,
-                  style: const TextStyle(
-                      color: Instrument.readout,
-                      fontSize: 14,
-                      fontFamily: kMono)),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(balance,
+                      style: const TextStyle(
+                          color: Instrument.readout,
+                          fontSize: 14,
+                          fontFamily: kMono)),
+                  if (subValue != null) ...[
+                    const SizedBox(height: 2),
+                    Text(subValue!,
+                        style: const TextStyle(
+                            color: Instrument.faint,
+                            fontSize: 11,
+                            fontFamily: kMono)),
+                  ],
+                ],
+              ),
               if (onTap != null) ...[
                 const SizedBox(width: 6),
                 Icon(Icons.chevron_right_rounded,

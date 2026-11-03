@@ -94,6 +94,8 @@ void main() {
             .overrideWith(() => MockAuthNotifier(AuthStatus.authenticated)),
         authServiceProvider.overrideWithValue(FakeAuthService()),
         sessionProvider.overrideWith(MockSessionNotifier.new),
+        quietPrice,
+        quietDisplayPrefs,
         walletProvider.overrideWith(() => MockWalletNotifier(wallet)),
         networkStatsProvider.overrideWith((ref) => const AsyncData(
             NetworkStats(blocks: 1234, peers: 8, reachable: true))),

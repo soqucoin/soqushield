@@ -60,6 +60,11 @@ class Instrument {
   // Reject / failure — warm-cold red.
   static const threat = Color(0xFFD96A5B); // foundry --down (desaturated, encoding only)
 
+  // The counterpart to [threat]: foundry --up, at the same desaturation so a
+  // rising figure sits in the cold palette instead of glowing out of it.
+  // ENCODING ONLY — a price moving up, never decoration, never an action.
+  static const rise = Color(0xFF5CB08A);
+
   /// soqupool's `.label` class, ported — the treatment that makes its section
   /// markers read finished: small, UPPERCASE (caller supplies caps), tracking
   /// locked to .16em OF THE SIZE (not a magic number), and ACCENT-coloured so
@@ -159,12 +164,24 @@ class InstrumentStatusBar extends StatelessWidget {
 /// hero number on every screen (balance, hashrate, supply, rate…). The value is
 /// pre-formatted by the caller so this stays a pure presentation widget.
 class InstrumentReadout extends StatelessWidget {
+  /// The square the label's control sits in, mirrored on the other side to
+  /// keep the label centred. 44pt is the smallest comfortable touch target.
+  static const double _actionSlot = 44;
+
   final String label;
   final String value;
   final String unit;
   final double valueSize;
   final Color valueColor;
   final Color unitColor;
+
+  /// An optional control beside the label — the eye that hides the figure.
+  ///
+  /// It rides the LABEL rather than the value, because the value is a
+  /// FittedBox that scales its whole row down to fit: a control in there
+  /// would shrink along with a seven-figure balance until it was untappable.
+  final Widget? labelAction;
+
   const InstrumentReadout({
     super.key,
     required this.label,
@@ -173,11 +190,29 @@ class InstrumentReadout extends StatelessWidget {
     this.valueSize = 62,
     this.valueColor = Instrument.readout,
     this.unitColor = Instrument.signal,
+    this.labelAction,
   });
   @override
   Widget build(BuildContext context) => Column(
         children: [
-          Text(label, style: Instrument.eyebrow()),
+          // The label keeps its optical centre whether or not the control is
+          // there: the control's width is mirrored by a gap on the other side,
+          // so turning the eye on does not shift the word "HOLDINGS".
+          if (labelAction == null)
+            Text(label, style: Instrument.eyebrow())
+          else
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                SizedBox(width: _actionSlot, height: _actionSlot),
+                Text(label, style: Instrument.eyebrow()),
+                SizedBox(
+                    width: _actionSlot,
+                    height: _actionSlot,
+                    child: Center(child: labelAction)),
+              ],
+            ),
           const SizedBox(height: 14),
           // A value wider than the panel (a seven-figure balance on a small
           // phone, a large system text size) scales down to fit rather than
@@ -214,6 +249,126 @@ class InstrumentReadout extends StatelessWidget {
           ),
         ],
       );
+}
+
+/// The eye that hides and shows a figure.
+///
+/// The icon names the ACTION, not the state — a slashed eye while the figure
+/// is visible means "tap to hide", which is the convention Material's own
+/// password fields use and the one people arrive with. The semantics label
+/// and tooltip say it in words, because an eye glyph on its own is ambiguous
+/// enough that the two conventions genuinely disagree.
+class InstrumentEye extends StatelessWidget {
+  /// Whether the figure is currently hidden.
+  final bool hidden;
+  final VoidCallback onTap;
+  final double size;
+
+  const InstrumentEye({
+    super.key,
+    required this.hidden,
+    required this.onTap,
+    this.size = 18,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final label = hidden ? 'Show balances' : 'Hide balances';
+    return Semantics(
+      button: true,
+      label: label,
+      child: Tooltip(
+        message: label,
+        child: InkResponse(
+          onTap: onTap,
+          radius: 22,
+          // A 44pt target around an 18pt glyph: the eye is small by design,
+          // the thing you can hit is not.
+          child: SizedBox(
+            width: 44,
+            height: 44,
+            child: Icon(
+              hidden
+                  ? Icons.visibility_outlined
+                  : Icons.visibility_off_outlined,
+              size: size,
+              color: Instrument.label,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The dollar figure under a SOQ figure — "$15.98 · +24.4%".
+///
+/// Presentational only: it takes text that is already formatted and already
+/// decided-upon. Whether there IS a price to show (mainnet, reachable, fresh)
+/// is the caller's judgement, so this widget never renders a placeholder — a
+/// caller with nothing to say omits it entirely rather than showing a dash.
+///
+/// The dollar figure is deliberately quieter than the SOQ figure above it:
+/// SOQ is what you hold, dollars are a convenience laid over it. The change
+/// rides [Instrument.rise]/[Instrument.threat] as pure encoding.
+class InstrumentFiat extends StatelessWidget {
+  /// The already-formatted dollar amount, e.g. "$15.98".
+  final String value;
+
+  /// The already-formatted 24h change, e.g. "+24.4%". Null to omit — a fresh
+  /// listing has no 24-hour history yet.
+  final String? change;
+
+  /// Whether [change] is a rise. Ignored when [change] is null.
+  final bool up;
+
+  final double size;
+  final TextAlign align;
+
+  const InstrumentFiat({
+    super.key,
+    required this.value,
+    this.change,
+    this.up = true,
+    this.size = 13,
+    this.align = TextAlign.center,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = change;
+    return Text.rich(
+      TextSpan(children: [
+        TextSpan(
+          text: value,
+          style: TextStyle(
+            color: Instrument.label,
+            fontSize: size,
+            fontFamily: kMono,
+            letterSpacing: size * 0.04,
+          ),
+        ),
+        if (c != null) ...[
+          TextSpan(
+            text: '  ·  ',
+            style: TextStyle(color: Instrument.faint, fontSize: size),
+          ),
+          TextSpan(
+            text: c,
+            style: TextStyle(
+              color: up ? Instrument.rise : Instrument.threat,
+              fontSize: size,
+              fontFamily: kMono,
+              letterSpacing: size * 0.04,
+            ),
+          ),
+        ],
+      ]),
+      textAlign: align,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+    );
+  }
 }
 
 /// A quiet, recurring reassurance chip — "YOU HOLD THE KEYS", "QUANTUM-SIGNED",
