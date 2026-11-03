@@ -76,6 +76,8 @@ void main() {
       await tester.pumpWidget(ProviderScope(
         overrides: [
           sessionProvider.overrideWith(MockSessionNotifier.new),
+          quietPrice,
+          quietDisplayPrefs,
           walletProvider.overrideWith(() => MockWalletNotifier(_wallet())),
         ],
         child: const MaterialApp(home: ReceivePilotScreen()),

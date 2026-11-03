@@ -9,9 +9,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:soqushield/providers/auth_provider.dart';
+import 'package:soqushield/models/fiat_currency.dart';
+import 'package:soqushield/providers/display_prefs_provider.dart';
+import 'package:soqushield/providers/price_provider.dart';
 import 'package:soqushield/providers/session_provider.dart';
 import 'package:soqushield/providers/wallet_provider.dart';
 import 'package:soqushield/services/auth_service.dart';
+import 'package:soqushield/services/price_service.dart';
 
 /// The backing map of the mocked secure storage. Reset by [installSecureStorageMock].
 final Map<String, String> secureStore = {};
@@ -91,6 +95,16 @@ class FakeAuthService extends AuthService {
     prompts++;
     return true;
   }
+
+  /// The outcome this fake reports. Set it to drive the lock screen's
+  /// unavailable branch (the OS declining to run the check).
+  AuthOutcome outcome = AuthOutcome.success;
+
+  @override
+  Future<AuthOutcome> authenticate() async {
+    prompts++;
+    return outcome;
+  }
   @override
   Future<void> clearAccount() async {}
 }
@@ -164,6 +178,45 @@ class MockWalletNotifier extends Notifier<WalletState> implements WalletNotifier
   void clearKeyCache() {}
   @override
   Future<void> setNetwork(network) async => state = state.copyWith(network: network);
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+/// The price poll, stilled.
+///
+/// A widget test that leaves [soqPriceProvider] live arms its five-minute
+/// periodic timer and trips the pending-timer invariant — exactly as the chain
+/// poll does, which is why every widget test already stubs that one. With no
+/// price the dollar lines are absent, so a layout assertion reads the screen as
+/// it was before fiat existed. A test that WANTS a dollar figure overrides
+/// [soqPriceProvider] with one of its own.
+final quietPrice = soqPriceProvider
+    .overrideWith((ref) => Stream.value(SoqPrice.unavailable(DateTime.now())));
+
+/// Display preferences held still: balances shown, dollars, capture as the
+/// platform default. A widget test that wants them otherwise overrides
+/// [displayPrefsProvider] itself.
+final quietDisplayPrefs = displayPrefsProvider.overrideWith(
+    () => FixedDisplayPrefs(const DisplayPrefs(loaded: true)));
+
+/// Display preferences that never touch storage or the platform channel.
+class FixedDisplayPrefs extends Notifier<DisplayPrefs>
+    implements DisplayPrefsNotifier {
+  FixedDisplayPrefs(this._prefs);
+  final DisplayPrefs _prefs;
+  @override
+  DisplayPrefs build() => _prefs;
+  @override
+  Future<void> setHideBalances(bool hide) async =>
+      state = state.copyWith(hideBalances: hide);
+  @override
+  Future<void> toggleHideBalances() => setHideBalances(!state.hideBalances);
+  @override
+  Future<void> setCurrency(FiatCurrency currency) async =>
+      state = state.copyWith(currency: currency);
+  @override
+  Future<void> setAllowScreenCapture(bool allow) async =>
+      state = state.copyWith(allowScreenCapture: allow);
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
 }

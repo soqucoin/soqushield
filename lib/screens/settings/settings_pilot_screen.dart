@@ -19,8 +19,10 @@ import 'package:share_plus/share_plus.dart';
 import '../../theme/instrument.dart';
 import '../../theme/motion.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/display_prefs_provider.dart';
 import '../../providers/session_provider.dart';
 import '../../providers/wallet_provider.dart';
+import '../../models/fiat_currency.dart';
 import '../../models/wallet_keys.dart' show SoqNetwork;
 import '../../services/backup_service.dart';
 import '../../services/secure_storage_service.dart';
@@ -61,6 +63,7 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
   Widget build(BuildContext context) {
     final wallet = ref.watch(walletProvider);
     final session = ref.watch(sessionProvider);
+    final prefs = ref.watch(displayPrefsProvider);
 
     return Scaffold(
       backgroundColor: Instrument.void0,
@@ -85,6 +88,26 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
                           .read(sessionProvider.notifier)
                           .setLockOnBackground(v)),
                   _timeoutTile(session),
+
+                  // ── PRIVACY & DISPLAY ──
+                  // NOT 'PRIVACY': the full app's PRIVACY section held the
+                  // shielded-transaction surfaces (privacy dashboard, view
+                  // key, coin control) that the lite build dropped, and a
+                  // scope pin asserts that exact header never returns. This
+                  // section is about what the screen shows, not about
+                  // confidential transactions.
+                  _section('PRIVACY & DISPLAY'),
+                  _toggleTile(
+                      Icons.visibility_off_outlined,
+                      'Hide balances',
+                      'Replace every amount with dots',
+                      prefs.hideBalances,
+                      (v) => ref
+                          .read(displayPrefsProvider.notifier)
+                          .setHideBalances(v)),
+                  _screenCaptureTile(prefs),
+                  _noteTile(_captureNote),
+                  _currencyTile(prefs),
 
                   // ── BACKUP & KEYS ──
                   _section('BACKUP & KEYS'),
@@ -155,8 +178,11 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
 
   Future<void> _doExport(BuildContext ctx, String password, String confirm,
       Rect? shareOrigin) async {
-    if (password.length < 8) {
-      _showSnack('Password must be at least 8 characters');
+    // One rule, from the service that enforces it — the dialog's hint, this
+    // check and BackupService.exportBackup cannot drift apart.
+    if (password.length < BackupService.minPasswordLength) {
+      _showSnack('Password must be at least '
+          '${BackupService.minPasswordLength} characters');
       return;
     }
     if (password != confirm) {
@@ -176,13 +202,27 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
       final file =
           File('${tempDir.path}/soqushield_backup_$timestamp.soqbackup');
       await file.writeAsBytes(bytes);
-      if (ctx.mounted) Navigator.pop(ctx);
-      // The share sheet pauses the app on Android; it is the app's own UI
-      // and must not lock the wallet when it closes.
-      await ref.read(sessionProvider.notifier).whileSystemUi(() =>
-          Share.shareXFiles([XFile(file.path)],
-              text: 'SoquShield Encrypted Wallet Backup',
-              sharePositionOrigin: shareOrigin));
+      try {
+        if (ctx.mounted) Navigator.pop(ctx);
+        // The share sheet pauses the app on Android; it is the app's own UI
+        // and must not lock the wallet when it closes.
+        await ref.read(sessionProvider.notifier).whileSystemUi(() =>
+            Share.shareXFiles([XFile(file.path)],
+                text: 'SoquShield Encrypted Wallet Backup',
+                sharePositionOrigin: shareOrigin));
+      } finally {
+        // The handoff is done, so the staging copy goes. It is encrypted, but
+        // it is still the wallet's seed sitting in the cache directory for as
+        // long as the OS feels like keeping it — and a backup the user shared
+        // once should not keep existing on the device they shared it from.
+        // Deleted on the failure path too: an abandoned share must not leave
+        // the file behind either.
+        try {
+          if (await file.exists()) await file.delete();
+        } catch (e) {
+          debugPrint('[export] could not remove the staged backup: $e');
+        }
+      }
       if (!mounted) return;
       _showSnack('Backup file shared');
       HapticFeedback.mediumImpact();
@@ -194,7 +234,14 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
           await Clipboard.setData(
               ClipboardData(text: 'soqbackup:${base64Encode(bytes)}'));
           if (ctx.mounted) Navigator.pop(ctx);
-          _showSnack('Backup copied to clipboard (share unavailable)');
+          // Auto-clear, as the recovery-phrase copy does. The payload is
+          // encrypted, but it is still the whole wallet on the system
+          // clipboard, readable by whatever reads clipboards next.
+          Future.delayed(const Duration(seconds: 60), () {
+            Clipboard.setData(const ClipboardData(text: ''));
+          });
+          _showSnack('Backup copied to clipboard — clears in 60s. '
+              'Paste and save it now.');
         }
       } catch (_) {
         _showSnack('Export failed: $e');
@@ -224,11 +271,14 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                  'Choose a strong password to encrypt your backup. You\'ll need it to restore.',
+                  'Choose a strong password to encrypt your backup. You\'ll '
+                  'need it to restore — it is the only thing protecting your '
+                  'recovery phrase in this file, so use a long one.',
                   style: TextStyle(
                       color: Instrument.faint, fontSize: 12, height: 1.5)),
               const SizedBox(height: 16),
-              _pwField(passwordCtrl, 'Password (8+ chars)'),
+              _pwField(passwordCtrl,
+                  'Password (${BackupService.minPasswordLength}+ chars)'),
               const SizedBox(height: 8),
               _pwField(confirmCtrl, 'Confirm password'),
             ],
@@ -584,6 +634,59 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
                 shape: BoxShape.circle,
                 color: on ? Instrument.signal : Instrument.label),
           ),
+        ),
+      );
+
+  /// What the capture toggle actually does, per platform — the two are not
+  /// the same protection and the copy must not pretend otherwise.
+  String get _captureNote => Platform.isIOS
+      ? 'iOS does not let any app block screenshots. This controls the blur '
+          'over the app in the app switcher. Your recovery phrase stays '
+          'covered either way.'
+      : 'Allowing capture also allows screen recording and casting — the '
+          'channel a remote-support scam uses to watch you open your wallet. '
+          'Your recovery phrase stays protected either way.';
+
+  Widget _screenCaptureTile(DisplayPrefs prefs) => _toggleTile(
+        Icons.screenshot_monitor_outlined,
+        Platform.isIOS ? 'Allow app-switcher preview' : 'Allow screenshots',
+        Platform.isIOS
+            ? 'Show the app unblurred when switching apps'
+            : 'Screenshots, screen recording and casting',
+        prefs.allowScreenCapture,
+        (v) =>
+            ref.read(displayPrefsProvider.notifier).setAllowScreenCapture(v),
+      );
+
+  Widget _currencyTile(DisplayPrefs prefs) => _rowFrame(
+        child: Row(
+          children: [
+            Icon(Icons.payments_outlined, size: 18, color: Instrument.label),
+            const SizedBox(width: 14),
+            Expanded(child: _titleSub('Currency', 'Shown beside your balance')),
+            DropdownButton<FiatCurrency>(
+              value: prefs.currency,
+              dropdownColor: Instrument.void2,
+              underline: const SizedBox.shrink(),
+              isDense: true,
+              icon: const Icon(Icons.expand_more_rounded,
+                  size: 16, color: Instrument.faint),
+              style: const TextStyle(
+                  color: Instrument.label, fontSize: 12, fontFamily: kMono),
+              items: [
+                for (final c in FiatCurrency.values)
+                  DropdownMenuItem(
+                    value: c,
+                    child: Text('${c.display}  ${c.symbol.trim()}'),
+                  ),
+              ],
+              onChanged: (v) {
+                if (v != null) {
+                  ref.read(displayPrefsProvider.notifier).setCurrency(v);
+                }
+              },
+            ),
+          ],
         ),
       );
 

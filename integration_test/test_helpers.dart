@@ -10,12 +10,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:soqushield/models/fiat_currency.dart';
 import 'package:soqushield/models/wallet_keys.dart';
 import 'package:soqushield/providers/auth_provider.dart';
+import 'package:soqushield/providers/display_prefs_provider.dart';
+import 'package:soqushield/providers/price_provider.dart';
 import 'package:soqushield/providers/session_provider.dart';
 import 'package:soqushield/providers/wallet_provider.dart';
 import 'package:soqushield/router.dart';
 import 'package:soqushield/services/auth_service.dart';
+import 'package:soqushield/services/price_service.dart';
 import 'package:soqushield/theme/app_theme.dart';
 
 // ═══════════════════════════════════════════
@@ -26,10 +30,47 @@ import 'package:soqushield/theme/app_theme.dart';
 ///
 /// Bypasses splash/auth. Overrides the wallet, auth, auth-service and session
 /// providers with test-safe mocks.
+/// The override list [buildTestApp] uses, exposed so a test can add to it.
+List<dynamic> testOverrides({
+  required String initialRoute,
+  WalletState? walletState,
+  AuthStatus authStatus = AuthStatus.authenticated,
+  SoqPrice? price,
+}) {
+  router.go(initialRoute);
+  return [
+    authProvider.overrideWith(() => _MockAuthNotifier(authStatus)),
+    authServiceProvider.overrideWithValue(_FakeAuthService()),
+    sessionProvider.overrideWith(_MockSessionNotifier.new),
+    walletProvider.overrideWith(
+        () => _MockWalletNotifier(walletState ?? mockWalletState)),
+    soqPriceProvider.overrideWith((ref) => Stream.value(price ?? mockPrice)),
+  ];
+}
+
+/// The app on its real router, for a caller assembling its own scope.
+Widget testApp() => MaterialApp.router(
+      title: 'SoquShield Test',
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.darkTheme,
+      routerConfig: router,
+    );
+
+/// Display preferences held fixed, touching no storage or platform channel.
+class FixedPrefs extends Notifier<DisplayPrefs> implements DisplayPrefsNotifier {
+  FixedPrefs(this._p);
+  final DisplayPrefs _p;
+  @override
+  DisplayPrefs build() => _p;
+  @override
+  dynamic noSuchMethod(Invocation i) => null;
+}
+
 Widget buildTestApp({
   required String initialRoute,
   WalletState? walletState,
   AuthStatus authStatus = AuthStatus.authenticated,
+  SoqPrice? price,
 }) {
   final ws = walletState ?? mockWalletState;
   router.go(initialRoute);
@@ -39,6 +80,10 @@ Widget buildTestApp({
       authServiceProvider.overrideWithValue(_FakeAuthService()),
       sessionProvider.overrideWith(_MockSessionNotifier.new),
       walletProvider.overrideWith(() => _MockWalletNotifier(ws)),
+      // A fixed quote, so a sweep renders the dollar lines without reaching
+      // CoinGecko — the five-minute poll would also leave a pending timer.
+      soqPriceProvider
+          .overrideWith((ref) => Stream.value(price ?? mockPrice)),
     ],
     child: MaterialApp.router(
       title: 'SoquShield Test',
@@ -72,6 +117,16 @@ WalletState get mockWalletState => WalletState(
       blockHeight: 42000,
     );
 
+/// A representative live quote — the listing price, well under a cent, which
+/// is the case that exercises the sub-cent money voice.
+SoqPrice get mockPrice => SoqPrice(
+      available: true,
+      currency: FiatCurrency.usd,
+      amount: 0.00015976,
+      change24hPct: 24.4,
+      fetchedAt: DateTime.now(),
+    );
+
 // ═══════════════════════════════════════════
 //  Mocks
 // ═══════════════════════════════════════════
@@ -93,6 +148,8 @@ class _FakeAuthService extends AuthService {
   Future<void> setBiometricEnabled(bool enabled) async {}
   @override
   Future<bool> authenticateWithBiometrics() async => true;
+  @override
+  Future<AuthOutcome> authenticate() async => AuthOutcome.success;
   @override
   Future<void> clearAccount() async {}
 }

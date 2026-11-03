@@ -17,9 +17,12 @@ import 'package:go_router/go_router.dart';
 
 import '../../theme/instrument.dart';
 import '../../theme/figures.dart';
+import '../../theme/fmt.dart';
 import '../../models/wallet_keys.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/display_prefs_provider.dart';
 import '../../providers/launch_state_provider.dart';
+import '../../providers/price_provider.dart';
 import '../../providers/wallet_provider.dart';
 import '../../providers/session_provider.dart';
 import '../../services/rpc_service.dart';
@@ -145,9 +148,24 @@ class _SendPilotScreenState extends ConsumerState<SendPilotScreen>
       _showError(addrError);
       return;
     }
-    if (wallet.balance <= 0 || amount > wallet.balance) {
+    // The fee comes out of the SAME balance, so "send everything" has to be
+    // checked against amount + fee. Checking the amount alone let a send-max
+    // through the gate, past the device credential, and into a builder refusal
+    // — the worst place to learn you were a fee short. The figure drawn in the
+    // anatomy above already used amount + fee; this is the same rule.
+    if (wallet.balance <= 0) {
       setState(() => _inFlight = false);
       _showError('Insufficient SOQ balance');
+      return;
+    }
+    if (amount + _estimatedFee > wallet.balance) {
+      setState(() => _inFlight = false);
+      final most = (wallet.balance - _estimatedFee).clamp(0.0, double.infinity);
+      _showError(most > 0
+          ? 'Not enough for the amount plus the network fee. '
+              'The most you can send is ${most.toStringAsFixed(4)} '
+              '${wallet.network.ticker}.'
+          : 'Not enough to cover the network fee.');
       return;
     }
     // No chain tip yet (the network has not answered since boot): a cached
@@ -362,6 +380,10 @@ class _SendPilotScreenState extends ConsumerState<SendPilotScreen>
               ],
             ),
           ),
+          // What that amount is worth, under the figure being typed. Mainnet
+          // only; the slot is reserved so the line arriving does not shove the
+          // input, the address field and the Send button down mid-typing.
+          _amountFiat(amount),
           const SizedBox(height: 18),
           // ── amount input ──
           _inputField(
@@ -419,6 +441,42 @@ class _SendPilotScreenState extends ConsumerState<SendPilotScreen>
     );
   }
 
+  /// The amount being typed, in dollars. Reserved slot on Mainnet so the
+  /// layout is identical before and after a price lands; nothing at all on
+  /// Stagenet, where tSOQ has no market.
+  Widget _amountFiat(double amount) {
+    // As on Home: livePriceProvider owns the network rule, this owns the slot.
+    final network = ref.watch(walletProvider.select((w) => w.network));
+    if (network != SoqNetwork.mainnet) return const SizedBox.shrink();
+
+    final currency = ref.watch(fiatCurrencyProvider);
+    final value = ref.watch(livePriceProvider)?.valueOf(amount);
+    return SizedBox(
+      height: 24,
+      child: Center(
+        child: (value == null || amount <= 0)
+            ? const SizedBox.shrink()
+            : InstrumentFiat(value: fmtMoney(value, currency), size: 13.5),
+      ),
+    );
+  }
+
+  /// The fee in dollars, appended to the SOQ figure. Empty when there is no
+  /// price, so the fee line reads exactly as it did before.
+  ///
+  /// Compact: a fee is a COST, and at a sub-cent coin price its exact dollar
+  /// value is noise — "~$0.0000012" beside a fee says nothing, "<$0.01" says
+  /// the thing the user actually wanted to know.
+  String _feeFiatSuffix() {
+    if (_feeLoading) return '';
+    final currency = ref.watch(fiatCurrencyProvider);
+    final value = ref.watch(livePriceProvider)?.valueOf(_estimatedFee);
+    if (value == null) return '';
+    final text = fmtMoney(value, currency, compact: true);
+    // "<$0.01" already carries its own qualifier; don't write "~<$0.01".
+    return text.startsWith('<') ? ' · $text' : ' · ~$text';
+  }
+
   // Both halves scale down on a narrow phone or a large system text size.
   Widget _feeLine(String ticker) => Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -430,7 +488,8 @@ class _SendPilotScreenState extends ConsumerState<SendPilotScreen>
               child: Text(
                   _feeLoading
                       ? 'ESTIMATING FEE…'
-                      : 'FEE ~${_formatFee(_estimatedFee, ticker)}',
+                      : 'FEE ~${_formatFee(_estimatedFee, ticker)}'
+                          '${_feeFiatSuffix()}',
                   style: TextStyle(
                       color: Instrument.faint,
                       fontSize: 10.5,

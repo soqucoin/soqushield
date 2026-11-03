@@ -66,6 +66,8 @@ Widget _scoped(WalletState wallet, Widget child,
             .overrideWith(() => MockAuthNotifier(AuthStatus.authenticated)),
         authServiceProvider.overrideWithValue(FakeAuthService()),
         sessionProvider.overrideWith(MockSessionNotifier.new),
+        quietPrice,
+        quietDisplayPrefs,
         walletProvider.overrideWith(() => MockWalletNotifier(wallet)),
         ...extra,
       ],
@@ -273,19 +275,55 @@ void main() {
     final activity = _read(
         'android/app/src/main/kotlin/org/soqu/soqushield/MainActivity.kt');
 
-    test('the flag is set at create and lifted only inside the debuggable check',
-        () {
+    test('the window starts protected, whatever is stored', () {
       expect(activity, contains('WindowManager.LayoutParams.FLAG_SECURE'));
-      final set = activity.indexOf('window.setFlags');
-      final lift = activity.indexOf('window.clearFlags');
-      expect(set, greaterThan(-1));
-      expect(lift, greaterThan(set));
-      final gate = activity.lastIndexOf('if (debuggable)', lift);
-      expect(gate, greaterThan(-1), reason: 'the lift sits under the gate');
+      // onCreate protects before anything else runs. Dart applies the owner's
+      // setting a moment later; until it does, the first frames after a cold
+      // start — the ones most likely to be showing a balance — are covered.
+      final create = activity.indexOf('override fun onCreate');
+      final configure = activity.indexOf('override fun configureFlutterEngine');
+      final protect = activity.indexOf('setSecure(true)', create);
+      expect(create, greaterThan(-1));
+      expect(protect, greaterThan(create));
+      expect(protect, lessThan(configure),
+          reason: 'the protection is applied in onCreate, before the engine '
+              'is configured and before any Dart can ask for anything else');
+    });
+
+    test('allowCapture — the store-screenshot hatch — stays behind the '
+        'debuggable check', () {
+      // Unchanged in intent: a RELEASE build must never lift the flag through
+      // this path, whatever the caller says.
+      final hatch = activity.indexOf('"allowCapture"');
+      expect(hatch, greaterThan(-1));
+      final gate = activity.indexOf('if (debuggable)', hatch);
+      expect(gate, greaterThan(hatch), reason: 'the lift sits under the gate');
       expect(activity, contains('ApplicationInfo.FLAG_DEBUGGABLE'));
     });
 
-    test('nothing under lib/ names the capture channel', () {
+    test('the store-screenshot hatch is never reachable from the app', () {
+      // The ORIGINAL pin, narrowed to what it was really protecting. The
+      // channel itself is now legitimate app surface — it carries the owner's
+      // "allow screenshots" setting — but `allowCapture` is the debuggable-
+      // only hatch for store screenshots and must stay out of lib/, callable
+      // only from integration_test/.
+      final hits = Directory('lib')
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.dart'))
+          // The method NAME in a string literal, either quote form — not any
+          // identifier that happens to contain those letters.
+          .where((f) => RegExp("allowCapture['\"]")
+              .hasMatch(f.readAsStringSync()))
+          .map((f) => f.path)
+          .toList();
+      expect(hits, isEmpty);
+    });
+
+    test('exactly one file under lib/ names the capture channel', () {
+      // So a screen cannot reach past ScreenCapture and set the flag itself,
+      // which would leave the stored preference and the real window state
+      // disagreeing.
       final hits = Directory('lib')
           .listSync(recursive: true)
           .whereType<File>()
@@ -294,7 +332,22 @@ void main() {
               f.readAsStringSync().contains('org.soqu.soqushield/capture'))
           .map((f) => f.path)
           .toList();
-      expect(hits, isEmpty);
+      expect(hits, ['lib/services/screen_capture.dart']);
+    });
+
+    test('the recovery-phrase screens override the owner\'s setting', () {
+      // Someone turns screenshots on to share a balance; that must not extend
+      // to the screens that show or take the 24 words.
+      for (final screen in [
+        'lib/screens/auth/seed_backup_screen.dart',
+        'lib/screens/auth/seed_restore_screen.dart',
+      ]) {
+        final src = _read(screen);
+        expect(src, contains('ScreenCapture.setAllowed(false)'),
+            reason: '$screen must protect itself while visible');
+        expect(src, contains('ScreenCapture.setAllowed(true)'),
+            reason: '$screen must hand the setting back when it leaves');
+      }
     });
   });
 }
