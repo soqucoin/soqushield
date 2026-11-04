@@ -50,12 +50,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - run: cd scripts && python3 -I test_asc.py
+      - run: cd scripts && for t in test_*.py; do python3 -I "$t" || exit 1; done
 
   store-copy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: python3 -I .github/scripts/check-store-copy.py --selftest
       - run: python3 -I .github/scripts/check-store-copy.py
 
   gitleaks:

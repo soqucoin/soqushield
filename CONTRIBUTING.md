@@ -30,7 +30,7 @@ The listing text under `android/fastlane/metadata` and `ios/fastlane/metadata`, 
 
 ## Releases
 
-`pubspec.yaml` carries `version: major.minor.patch+build`. The build number rises on every upload, because both stores reject a repeated one. A merge to `main` builds the app and uploads it to TestFlight and to the Play internal track. A tag `v<version>-build<build>` on `main` promotes that build to production after the approval step. Before an upload, the device drive under `integration_test` runs on an iOS simulator and on an Android emulator, and the pull request names the run. Release signing material and store credentials live in the repository's Actions secrets and in a local `~/.soqushield-release.env` (see `fastlane.env.example`), and nowhere in the tree.
+`pubspec.yaml` carries `version: major.minor.patch+build`. The build number rises on every upload, because both stores reject a repeated one. A merge to `main` builds the app and uploads it to TestFlight and to the Play internal track. A tag `v<version>-build<build>` on `main` promotes that build to production after the approval step. The tag names a commit on `main` whose testing upload has finished and whose build Apple has processed. Before the tag, the App Store version for the marketing version exists (the iOS `metadata` lane creates it from the listing text, or it is created in App Store Connect) and the release notes are written. Before an upload, the device drive under `integration_test` runs on an iOS simulator and on an Android emulator, and the pull request names the run. Release signing material and store credentials live in the repository's Actions secrets and in a local `~/.soqushield-release.env` (see `fastlane.env.example`), and nowhere in the tree.
 
 ## Reading
 

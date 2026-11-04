@@ -13,6 +13,12 @@
 #
 # iOS signing is Xcode's automatic cloud signing with the API key, so no certificate is stored.
 # The archive is checked for simulator slices (fastlane upload) before it is uploaded.
+#
+# Before a production tag: the tagged commit is on main; its testing upload has finished and Apple
+# has processed the build (the iOS job waits up to 40 minutes for that); the App Store version for
+# the marketing version exists (the iOS metadata lane creates it from the listing text, or it is
+# created in App Store Connect); the release notes are written. The tag names pubspec's version
+# and build, v<version>-build<build>.
 name: Release
 
 on:
@@ -39,6 +45,8 @@ jobs:
       build: ${{ steps.read.outputs.build }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - id: read
         run: |
           set -euo pipefail
@@ -48,9 +56,16 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "build=$build" >> "$GITHUB_OUTPUT"
           echo "pubspec: $version build $build"
-          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v${version}-build${build}" ]; then
-            echo "the tag $GITHUB_REF_NAME does not name pubspec's v${version}-build${build}"
-            exit 1
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            if [ "$GITHUB_REF_NAME" != "v${version}-build${build}" ]; then
+              echo "the tag $GITHUB_REF_NAME does not name pubspec's v${version}-build${build}"
+              exit 1
+            fi
+            git fetch --no-tags origin main:refs/remotes/origin/main
+            if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
+              echo "the tagged commit $GITHUB_SHA is not on main; tag a merged commit"
+              exit 1
+            fi
           fi
 
   android-internal:
@@ -171,6 +186,31 @@ jobs:
           mkdir -p "$RUNNER_TEMP/asc"
           printf '%s\n' "$ASC_KEY_P8" > "$RUNNER_TEMP/asc/AuthKey.p8"
           echo "ASC_KEY_PATH=$RUNNER_TEMP/asc/AuthKey.p8" >> "$GITHUB_ENV"
+      - name: Wait for Apple to process the build, and check the App Store version exists
+        env:
+          BUILD: ${{ needs.version.outputs.build }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 40); do
+            state=$(python3 scripts/asc.py build "$BUILD" | python3 -c 'import sys, json
+          d = json.load(sys.stdin)
+          live = [b for b in d.get("data", []) if not b["attributes"].get("expired")]
+          print(live[0]["attributes"].get("processingState") if live else "ABSENT")')
+            echo "build $BUILD: $state"
+            if [ "$state" = VALID ]; then break; fi
+            if [ "$i" = 40 ]; then
+              echo "build $BUILD is not processed after 40 minutes; the testing upload of this commit must finish first"
+              exit 1
+            fi
+            sleep 60
+          done
+          n=$(python3 scripts/asc.py get "/v1/apps/6759628525/appStoreVersions?filter[versionString]=$VERSION&limit=1" \
+            | python3 -c 'import sys, json; print(len(json.load(sys.stdin).get("data", [])))')
+          if [ "$n" = 0 ]; then
+            echo "App Store version $VERSION does not exist; the iOS metadata lane creates it, or create it in App Store Connect, then re-run this job"
+            exit 1
+          fi
       - name: Export-compliance gate, then attach the processed build to the App Store version
         env:
           BUILD: ${{ needs.version.outputs.build }}

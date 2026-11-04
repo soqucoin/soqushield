@@ -37,7 +37,7 @@ The habits beyond the settings: pull requests open as drafts (`gh pr create --dr
 
 ## Store consoles
 
-- App Store Connect: an invitation to the team with access to SoquShield at the App Manager role and the certificates permission. An individual API key under Users and Access, Integrations, feeds the local lanes.
+- App Store Connect: an invitation to the team with access to SoquShield at the App Manager role and the certificates permission. The lanes and the scripts take a team API key, generated for you by the account holder under Users and Access, Integrations, Team Keys, at the App Manager role. An individual key has no issuer id and signs a different token, which the scripts do not produce yet.
 - Google Play Console: an invitation with app-level access to SoquShield. For the scripts, a service account in your own Google Cloud project, invited to the Play Console with the same app permissions.
 - Fill `~/.soqushield-release.env` from `fastlane.env.example` with your own key id, issuer id, key path and service-account path. `python3 scripts/play_status.py` and `python3 scripts/asc.py get '/v1/apps/6759628525/builds?limit=3'` confirm the access.
 
