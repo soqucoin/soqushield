@@ -145,6 +145,20 @@ platform :ios do
     check_ipa!(ipa)
   end
 
+  desc "Check an existing archive's binaries and upload it to TestFlight: IPA=/abs/path fastlane upload"
+  lane :upload do
+    api_key = asc_key
+    ipa = ENV["IPA"].to_s
+    UI.user_error!("IPA unset or not a file: #{ipa}") unless File.file?(ipa)
+    check_ipa!(ipa)
+    upload_to_testflight(
+      api_key: api_key,
+      ipa: ipa,
+      skip_waiting_for_build_processing: true
+    )
+    UI.success("Uploaded #{File.basename(ipa)} (#{pubspec_version}); it shows in TestFlight after processing")
+  end
+
   desc "Add a processed build to an external group and submit it for beta review with a what-to-test note: BUILD=<number> VERSION=<version> GROUP=<name> NOTE=<text> fastlane distribute"
   lane :distribute do
     api_key = asc_key

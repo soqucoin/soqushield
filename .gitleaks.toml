@@ -1,0 +1,8 @@
+# gitleaks configuration for the checks workflow: the default rules, plus one reviewed allowance.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Reviewed false positives (4 November 2026)"
+# CocoaPods records a SHA-1 checksum per pod in Podfile.lock; the generic-api-key rule matches them.
+paths = ['''ios/Podfile\.lock''']
