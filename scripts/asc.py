@@ -73,6 +73,10 @@ def jwt() -> str:
     return f"{header}.{payload}.{b64url(raw)}"
 
 
+def ok(st: int) -> bool:
+    return 200 <= st < 300
+
+
 def req(method: str, path: str, body=None):
     r = urllib.request.Request(API + path, method=method,
                                headers={"Authorization": "Bearer " + jwt(),
@@ -128,10 +132,12 @@ def main():
         version = sys.argv[2]
         st, d = req("GET", f"/v1/builds?filter[app]={APP_ID}&filter[version]={version}&fields[builds]=version,processingState,expired")
         print(json.dumps(d, indent=2))
+        return 0 if ok(st) else 1
     elif cmd == "review-state":
         build_id = sys.argv[2]
         st, d = req("GET", f"/v1/builds/{build_id}/betaAppReviewSubmission")
         print(json.dumps(d, indent=2))
+        return 0 if ok(st) else 1
     elif cmd == "whatsnew":
         build_id, text = sys.argv[2], sys.argv[3]
         # filter[locale] silently returns nothing on this nested endpoint
@@ -149,25 +155,30 @@ def main():
                                   "attributes": {"locale": "en-US", "whatsNew": text},
                                   "relationships": {"build": {"data": {"id": build_id, "type": "builds"}}}}})
         print(st, json.dumps(d, indent=2)[:400])
+        return 0 if ok(st) else 1
     elif cmd == "beta-description":
-        sys.exit(beta_description(sys.argv[2]))
+        return beta_description(sys.argv[2])
     elif cmd == "attach":
         build_id, group_id = sys.argv[2], sys.argv[3]
         st, d = req("POST", f"/v1/betaGroups/{group_id}/relationships/builds",
                     {"data": [{"id": build_id, "type": "builds"}]})
         print(st, json.dumps(d)[:400])
+        return 0 if ok(st) else 1
     elif cmd == "submit":
         build_id = sys.argv[2]
         st, d = req("POST", "/v1/betaAppReviewSubmissions",
                     {"data": {"type": "betaAppReviewSubmissions",
                               "relationships": {"build": {"data": {"id": build_id, "type": "builds"}}}}})
         print(st, json.dumps(d, indent=2)[:600])
+        return 0 if ok(st) else 1
     elif cmd == "get":
         st, d = req("GET", sys.argv[2])
         print(json.dumps(d, indent=2))
+        return 0 if ok(st) else 1
     else:
         print(__doc__)
+        return 2
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

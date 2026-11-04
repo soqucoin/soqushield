@@ -29,6 +29,14 @@ def ok(st):
     return 200 <= st < 300
 
 
+def beta_state_missing(states):
+    """True when no beta detail came back, or when any detail's internal state is unset or reads
+    MISSING_EXPORT_COMPLIANCE. An unknown state refuses the attachment, as the module docstring says."""
+    if not states:
+        return True
+    return any(s.get("internalBuildState") in (None, "", "MISSING_EXPORT_COMPLIANCE") for s in states)
+
+
 def read_build(number):
     st, d = asc.req("GET", f"/v1/builds?filter[app]={APP}&filter[version]={number}"
                            "&fields[builds]=version,processingState,usesNonExemptEncryption"
@@ -71,7 +79,7 @@ def main():
         print("read back", b["attributes"], states)
 
     value = b["attributes"].get("usesNonExemptEncryption")
-    missing = (not states) or any(s.get("internalBuildState") == "MISSING_EXPORT_COMPLIANCE" for s in states)
+    missing = beta_state_missing(states)
     if value is not expected or missing:
         print(f"GATE: usesNonExemptEncryption reads {value!r} (expected {expected!r}); "
               f"beta state missing or unknown: {missing}. The build is not attached.")
