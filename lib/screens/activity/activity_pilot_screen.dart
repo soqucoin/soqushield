@@ -14,6 +14,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../theme/instrument.dart';
 import '../../providers/wallet_provider.dart';
+import 'activity_detail_sheet.dart';
 
 class ActivityPilotScreen extends ConsumerStatefulWidget {
   const ActivityPilotScreen({super.key});
@@ -52,8 +53,11 @@ class _ActivityPilotScreenState extends ConsumerState<ActivityPilotScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final txs = ref.watch(walletProvider).recentTransactions;
-    final timeline = txs.map(_Entry.fromTx).toList()
+    final wallet = ref.watch(walletProvider);
+    final ticker = wallet.network.ticker;
+    final timeline = wallet.recentTransactions
+        .map((tx) => _Entry.fromTx(tx, ticker))
+        .toList()
       ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
 
     // Day grouping: fold the (already newest-first) timeline into sections
@@ -218,15 +222,10 @@ class _ActivityPilotScreenState extends ConsumerState<ActivityPilotScreen> {
   Widget _row(_Entry e) {
     final inbound = e.inbound;
 
-    // Every row copies its hash (the long-standing telemetry-row gesture).
+    // A row opens its transaction's detail sheet, where the hash is copied.
     void onTap() {
-      Clipboard.setData(ClipboardData(text: e.txid));
       HapticFeedback.selectionClick();
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Hash copied', style: TextStyle(fontSize: 12)),
-        backgroundColor: Instrument.void2,
-        behavior: SnackBarBehavior.floating,
-      ));
+      showActivityDetail(context, e.tx, ref.read(walletProvider).network);
     }
 
     return GestureDetector(
@@ -259,12 +258,21 @@ class _ActivityPilotScreenState extends ConsumerState<ActivityPilotScreen> {
                         letterSpacing: 0.6)),
               ],
             ),
-            const Spacer(),
-            Text(e.amountLabel,
-                style: TextStyle(
-                    color: inbound ? Instrument.readout : Instrument.label,
-                    fontSize: 13.5,
-                    fontFamily: kMono)),
+            const SizedBox(width: 12),
+            // A long amount scales down to fit rather than overflowing.
+            Expanded(
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(e.amountLabel,
+                      style: TextStyle(
+                          color: inbound ? Instrument.readout : Instrument.label,
+                          fontSize: 13.5,
+                          fontFamily: kMono)),
+                ),
+              ),
+            ),
             const SizedBox(width: 6),
             const Icon(Icons.chevron_right_rounded,
                 size: 14, color: Instrument.faint),
@@ -281,16 +289,16 @@ class _Entry {
   final String label;
   final bool inbound;
   final String amountLabel;
-  final String txid;
+  final WalletTransaction tx;
   const _Entry({
     required this.timestamp,
     required this.label,
     required this.inbound,
     required this.amountLabel,
-    required this.txid,
+    required this.tx,
   });
 
-  factory _Entry.fromTx(WalletTransaction tx) {
+  factory _Entry.fromTx(WalletTransaction tx, String ticker) {
     final inbound = tx.type != TxType.sent;
     final label = switch (tx.type) {
       TxType.sent => 'Sent',
@@ -303,8 +311,8 @@ class _Entry {
       timestamp: tx.timestamp,
       label: label,
       inbound: inbound,
-      amountLabel: '$sign$amt SOQ',
-      txid: tx.txid,
+      amountLabel: '$sign$amt $ticker',
+      tx: tx,
     );
   }
 

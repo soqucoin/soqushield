@@ -1,0 +1,1 @@
+Cartera de autocustodia para la red poscuántica Soqucoin. Crea una cartera, haz una copia de seguridad de sus 24 palabras y guarda tu dirección de Mainnet.

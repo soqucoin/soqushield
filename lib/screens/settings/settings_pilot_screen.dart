@@ -7,7 +7,6 @@
 // Copyright 2026 Soqucoin Labs Inc.
 
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -22,6 +21,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/session_provider.dart';
 import '../../providers/wallet_provider.dart';
 import '../../models/wallet_keys.dart' show SoqNetwork;
+import '../../services/backup_handoff.dart';
 import '../../services/backup_service.dart';
 import '../../services/secure_storage_service.dart';
 import '../../services/rpc_service.dart';
@@ -108,7 +108,8 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
                       'A mainnet address begins sq1. A stagenet address '
                       'begins ssq1 and cannot receive anything on mainnet. '
                       'Your address here begins ${wallet.network.hrp}1. '
-                      'Balances and sending on Mainnet open at mainnet launch.'),
+                      'Sending needs the network. Until it answers, the '
+                      'balance shown is the last one this wallet read.'),
                   _infoTile(Icons.dns_outlined, 'Endpoint',
                       RpcService.hostFor(wallet.network)),
                   _infoTile(Icons.height_rounded, 'Block height',
@@ -172,20 +173,24 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
         return;
       }
       final tempDir = await getTemporaryDirectory();
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final file =
-          File('${tempDir.path}/soqushield_backup_$timestamp.soqbackup');
-      await file.writeAsBytes(bytes);
       if (ctx.mounted) Navigator.pop(ctx);
       // The share sheet pauses the app on Android; it is the app's own UI
-      // and must not lock the wallet when it closes.
+      // and must not lock the wallet when it closes. The temporary copy
+      // that feeds the sheet is removed once the sheet has closed.
       await ref.read(sessionProvider.notifier).whileSystemUi(() =>
-          Share.shareXFiles([XFile(file.path)],
-              text: 'SoquShield Encrypted Wallet Backup',
-              sharePositionOrigin: shareOrigin));
+          handOffBackup(bytes,
+              folder: tempDir,
+              share: (file) => Share.shareXFiles([file],
+                  text: 'SoquShield Encrypted Wallet Backup',
+                  sharePositionOrigin: shareOrigin)));
       if (!mounted) return;
       _showSnack('Backup file shared');
       HapticFeedback.mediumImpact();
+    } on BackupCleanupError {
+      // A backup copy in the temporary folder could not be removed: report
+      // it rather than place another copy of the backup on the clipboard.
+      _showSnack('Export stopped: a temporary backup copy could not be '
+          'removed. Restart the app and try again.');
     } catch (e) {
       try {
         final backup = BackupService(SecureStorageService());
@@ -344,6 +349,9 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
           TextButton(
             onPressed: () async {
               Navigator.pop(ctx);
+              // The auto-lock state first, so no timeout fires during the
+              // wipe's awaits and writes a setting back after the delete.
+              ref.read(sessionProvider.notifier).resetToDefaults();
               await ref.read(walletProvider.notifier).wipeWallet();
               final authService = ref.read(authServiceProvider);
               await authService.clearAccount();

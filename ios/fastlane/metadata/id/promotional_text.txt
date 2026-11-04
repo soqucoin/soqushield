@@ -1,0 +1,1 @@
+Dompet self-custody untuk jaringan pascakuantum Soqucoin. Buat dompet, cadangkan 24 katanya, dan simpan alamat Mainnet Anda.

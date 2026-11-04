@@ -1,0 +1,21 @@
+SoquShield é a carteira de autocustódia da Soqucoin, uma rede de camada 1 construída com criptografia pós-quântica. Cada transação é assinada no seu dispositivo com ML-DSA-44 (FIPS 204), o esquema de assinatura baseado em reticulados padronizado pelo NIST e projetado para resistir a ataques de futuros computadores quânticos.
+
+SUAS CHAVES, SUAS MOEDAS
+Suas chaves são geradas e armazenadas somente no seu dispositivo, protegidas pelo seu código de acesso e pela biometria. Uma frase de recuperação de 24 palavras e um arquivo de backup criptografado fazem o backup da sua carteira. A Soqucoin Labs nunca guarda seus fundos e não pode movimentá-los.
+
+O QUE VOCÊ PODE FAZER
+- Criar uma carteira ou restaurá-la a partir das 24 palavras
+- Mostrar seu endereço como texto ou QR code
+- Enviar e receber SOQ com assinaturas pós-quânticas
+- Ver seu histórico em Activity
+- Field Manual: um guia do usuário completo no app, sem precisar de conta
+
+REDES
+Uma carteira nova é criada na Mainnet, onde saldos e envios já funcionam. A Stagenet, a rede de testes pública, fica a um toque em Settings para praticar com moedas de teste.
+
+CÓDIGO ABERTO
+O software de nó da Soqucoin é de código aberto e foi auditado pela Halborn. A carteira lê o estado da blockchain pelos gateways da Soqucoin Labs. Sem login, sem anúncios, sem análises de terceiros, sem venda de dados.
+
+Por enquanto, a interface do app e o Field Manual estão em inglês.
+
+Dúvidas? O Field Manual do app e https://soqu.org/help explicam configuração, envio, recebimento e recuperação.

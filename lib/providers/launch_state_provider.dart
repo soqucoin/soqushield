@@ -9,15 +9,15 @@ final preloadedPreferencesProvider = Provider<SharedPreferences?>((_) => null);
 
 /// Whether this install has ever seen Mainnet answer.
 ///
-/// Before launch the mainnet endpoints do not answer, and the app says so
-/// ("Mainnet opens at launch"). Once they have answered, an unreachable
-/// Mainnet is an outage, and the app says that instead. The flag is kept in
+/// Until this install has seen Mainnet answer, an unreachable Mainnet reads
+/// as connecting. Once it has answered, an unreachable Mainnet is an outage,
+/// and the app says that instead. The flag is kept in
 /// plain preferences: it is not a secret, it is about the network and not
 /// the wallet (a wipe leaves it), and it must survive a restart.
 ///
 /// With the preferences preloaded, the stored value is the first value, so
-/// a post-launch install that starts offline never shows the pre-launch
-/// line, not even for the first frames.
+/// an install that has seen Mainnet and starts offline never shows the
+/// connecting line, not even for the first frames.
 class MainnetSeenLiveNotifier extends Notifier<bool> {
   static const key = 'soqshield_mainnet_seen_live';
 

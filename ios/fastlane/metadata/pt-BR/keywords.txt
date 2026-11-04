@@ -1,0 +1,1 @@
+soqucoin,SOQ,carteira,pós-quântica,quântica,ML-DSA,cripto,autocustódia,frase de recuperação

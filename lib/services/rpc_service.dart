@@ -10,12 +10,10 @@ import '../models/wallet_keys.dart';
 class RpcService {
   /// Production RPC endpoints.
   ///
-  /// Both hostnames are permanent. At mainnet launch the mainnet-rpc route is
-  /// re-homed from the (decommissioned) simulation worker to the real mainnet
-  /// soqucoind, so the app toggle works with zero app store update.
+  /// Both hostnames are permanent; each route fronts that network's node.
   static const Map<SoqNetwork, String> _endpoints = {
-    SoqNetwork.stagenet: 'https://staging-rpc.soqu.org',     // LIVE — stagenet Services VPS
-    SoqNetwork.mainnet:  'https://mainnet-rpc.soqu.org',  // permanent mainnet RPC hostname (route re-homes to mainnet soqucoind at launch)
+    SoqNetwork.stagenet: 'https://staging-rpc.soqu.org',  // the stagenet node
+    SoqNetwork.mainnet:  'https://mainnet-rpc.soqu.org',  // the mainnet node, live since 2026-10-13
   };
 
   final http.Client _client;

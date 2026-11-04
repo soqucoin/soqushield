@@ -33,7 +33,7 @@ const _stagenetAddress =
     'ssq1p3j6nd46xrh8vl8ac86x8sm4dlynv95ckpyn5y4d46kte8js05k2qvft6ee';
 
 const _waitingLine =
-    'Mainnet opens at launch. Your address is ready to receive.';
+    'Connecting to Mainnet. Your address is ready to receive.';
 
 /// The 6.9-inch phone's logical surface (the brief's gate) and a small one.
 const _large = Size(430, 932);

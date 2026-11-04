@@ -1,0 +1,1 @@
+Ví tự lưu ký cho mạng hậu lượng tử Soqucoin. Tạo ví, sao lưu 24 từ và giữ địa chỉ Mainnet của bạn.

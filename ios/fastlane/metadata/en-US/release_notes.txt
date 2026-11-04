@@ -1,0 +1,1 @@
+The lite wallet. Mainnet is the default network for a new wallet, the receive QR carries your bare address, and the app is trimmed to the wallet basics: create, restore, back up, receive, send, activity, settings and the Field Manual. Balances and sending on Mainnet open at mainnet launch. Stagenet stays available in Settings.

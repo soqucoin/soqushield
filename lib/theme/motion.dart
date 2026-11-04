@@ -36,6 +36,27 @@ class MotionTiming {
 
   /// The opacity blip that stands in for a wipe under reduced motion.
   static const blip = Duration(milliseconds: 150);
+
+  /// A tick mark's light as the comet head passes it.
+  static const tick = Duration(milliseconds: 500);
+
+  /// The scanline revealing the figures top to bottom.
+  static const reveal = Duration(milliseconds: 1200);
+
+  /// A held finger before the scanline takes to it; a tap shows nothing.
+  static const arm = Duration(milliseconds: 150);
+
+  /// The scanline's glide to the nearest row edge on release.
+  static const glide = Duration(milliseconds: 150);
+
+  /// The scanline's fade after the glide, and a lit row settling.
+  static const release = Duration(milliseconds: 400);
+
+  /// The least time between two section-crossing buzzes.
+  static const buzzGap = Duration(milliseconds: 120);
+
+  /// The pool dot's flare as an update lands, three flare constants long.
+  static const poolFlare = Duration(milliseconds: 1050);
 }
 
 /// True when the platform asks for reduced motion (iOS Reduce Motion, the

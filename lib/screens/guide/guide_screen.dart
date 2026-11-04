@@ -8,7 +8,9 @@ import '../../theme/instrument.dart';
 ///
 /// Task-shaped articles grouped by what the user is trying to do, rendered on
 /// the foundry language (seam rows, no cards). Support (Discord) sits at the
-/// bottom as the escalation path, not the front door.
+/// bottom as the escalation path, not the front door, with the privacy
+/// policy beside it: App Review asks for the policy to be reachable in the
+/// app (Guideline 5.1.1), and this is where a user looks for it.
 class GuideScreen extends StatelessWidget {
   const GuideScreen({super.key});
 
@@ -68,7 +70,20 @@ class GuideScreen extends StatelessWidget {
                   ],
                   const SizedBox(height: 18),
                   const InstrumentDivider(inset: 22),
-                  const _SupportRow(),
+                  ExternalLinkRow(
+                    icon: Icons.chat_bubble_outline,
+                    title: 'Still stuck? Contact support',
+                    detail:
+                        'Opens our Discord. Support will never ask for your recovery phrase.',
+                    url: Uri.parse('https://discord.gg/kc6GMmbZvX'),
+                  ),
+                  ExternalLinkRow(
+                    icon: Icons.policy_outlined,
+                    title: 'Privacy policy',
+                    detail:
+                        'What the app sends, what stays on your device, and what we never do. Opens soqu.org.',
+                    url: Uri.parse('https://soqu.org/privacy'),
+                  ),
                 ],
               ),
             ),
@@ -126,36 +141,46 @@ class _ArticleRow extends StatelessWidget {
   }
 }
 
-/// The escalation path: guide first, humans second.
-class _SupportRow extends StatelessWidget {
-  const _SupportRow();
+/// A row at the foot of the manual that opens a page outside the app, in the
+/// device's browser: support, the privacy policy. The row carries its target,
+/// so a test can read where it goes.
+class ExternalLinkRow extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String detail;
+  final Uri url;
+  const ExternalLinkRow({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.detail,
+    required this.url,
+  });
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      onTap: () => launchUrl(Uri.parse('https://discord.gg/kc6GMmbZvX'),
-          mode: LaunchMode.externalApplication),
+      onTap: () => launchUrl(url, mode: LaunchMode.externalApplication),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
         child: Row(
           children: [
-            const Icon(Icons.chat_bubble_outline,
-                color: Instrument.label, size: 18),
+            Icon(icon, color: Instrument.label, size: 18),
             const SizedBox(width: 14),
-            const Expanded(
+            Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Still stuck? Contact support',
-                      style: TextStyle(
+                  Text(title,
+                      style: const TextStyle(
                         color: Instrument.readout,
                         fontSize: 14.5,
                         fontWeight: FontWeight.w500,
                       )),
-                  SizedBox(height: 3),
+                  const SizedBox(height: 3),
                   Text(
-                    'Opens our Discord. Support will never ask for your recovery phrase.',
-                    style: TextStyle(
+                    detail,
+                    style: const TextStyle(
                       color: Instrument.faint,
                       fontSize: 11.5,
                       height: 1.35,

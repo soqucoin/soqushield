@@ -1,0 +1,1 @@
+Phiên bản ví gọn nhẹ. Mainnet là mạng mặc định cho ví mới, mã QR nhận tiền chỉ chứa địa chỉ của bạn, và ứng dụng được tinh gọn với các chức năng cơ bản: tạo, khôi phục, sao lưu, nhận, gửi, lịch sử, cài đặt và Field Manual. Số dư và chức năng gửi trên Mainnet sẽ mở khi mainnet ra mắt. Stagenet vẫn có sẵn trong Settings.

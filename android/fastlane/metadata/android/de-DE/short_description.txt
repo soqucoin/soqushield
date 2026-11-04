@@ -1,0 +1,1 @@
+Self-Custody-Wallet für Soqucoin, das Post-Quanten-Netzwerk.

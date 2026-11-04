@@ -1,0 +1,1 @@
+The Network tab's clock carries a lit head where the next block stands, and the ticks light as it passes them. The figures reveal as they arrive and again on a pull to refresh. Hold a finger on the figures and a copper line follows it, lighting the figure under it. Mainnet balances and sending open at mainnet launch; Stagenet stays available in Settings.

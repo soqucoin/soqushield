@@ -1,7 +1,7 @@
 // The Network screen and what feeds it: the emission schedule against the
 // node's constants, the chain and pool readers against the shapes the live
 // endpoints return (captured 2026-10-06), the formatters, and the screen in
-// its three states (Stagenet live, Mainnet before launch, Mainnet live) on
+// its three states (Stagenet live, Mainnet not yet answered, Mainnet live) on
 // the large and the small surface.
 
 import 'dart:convert';
@@ -683,7 +683,7 @@ void main() {
       semantics.dispose();
     });
 
-    testWidgets('Mainnet before launch waits: the clock is offline, the '
+    testWidgets('Mainnet not yet answered waits: the clock is offline, the '
         'schedule reads from genesis and the pool section waits', (tester) async {
       _surface(tester, _large);
       await tester.pumpWidget(_screen(SoqNetwork.mainnet,
@@ -691,12 +691,12 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
       expect(find.text('SOQUCOIN · ML-DSA-44 · OFFLINE'), findsOneWidget);
-      expect(find.textContaining('Mainnet opens at launch'), findsOneWidget);
+      expect(find.textContaining('Connecting to Mainnet'), findsOneWidget);
       expect(find.byKey(const ValueKey('weather line')), findsNothing,
           reason: 'nothing was read, so no sentence under the clock');
       expect(find.text('100,000 SOQ A BLOCK AT GENESIS'), findsOneWidget,
           reason: 'the emission card\'s line, closed');
-      expect(find.text('OPENS AT MAINNET LAUNCH'), findsOneWidget,
+      expect(find.text('WAITING FOR THE NETWORK'), findsOneWidget,
           reason: 'the pool card\'s line, closed');
       await tester.tap(find.byKey(const ValueKey('card emission')));
       await tester.pump();
@@ -706,7 +706,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('card pool')));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
-      expect(find.textContaining('figures appear here when Mainnet opens'), findsOneWidget);
+      expect(find.textContaining('figures appear here once Mainnet answers'), findsOneWidget);
       expect(find.text('OPERATIONAL'), findsNothing,
           reason: 'the pool reports on the chain it mines, not yet this one');
       expect(tester.takeException(), isNull);
@@ -720,7 +720,7 @@ void main() {
           chain: offline, pool: await livePool(), seenLive: true));
       await tester.pump();
       expect(find.text('Reconnecting to the network.'), findsOneWidget);
-      expect(find.textContaining('Mainnet opens at launch'), findsNothing);
+      expect(find.textContaining('Connecting to Mainnet'), findsNothing);
       await tester.pumpWidget(const SizedBox.shrink());
     });
 
@@ -805,7 +805,7 @@ void main() {
       addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
       await tester.pumpWidget(_screen(SoqNetwork.mainnet, chain: offline));
       await tester.pump();
-      final line = find.textContaining('Mainnet opens at launch');
+      final line = find.textContaining('Connecting to Mainnet');
       expect(line, findsOneWidget);
       final para = tester.renderObject<RenderParagraph>(line);
       expect(para.textSize.height, lessThanOrEqualTo(para.size.height + 0.5),

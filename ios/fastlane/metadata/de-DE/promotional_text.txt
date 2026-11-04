@@ -1,0 +1,1 @@
+Self-Custody-Wallet für das Post-Quanten-Netzwerk Soqucoin. Erstelle eine Wallet, sichere ihre 24 Wörter und halte deine Mainnet-Adresse.

@@ -1,0 +1,1 @@
+The Network tab opens with one plain sentence on how the chain and the pool are doing, and three cards (Chain, Emission, SOQUPOOL) that each show a summary and open to the full figures on a tap. The Send screen's diagram fits long balances. The Field Manual matches the app. Mainnet balances and sending open at mainnet launch; Stagenet stays available in Settings.

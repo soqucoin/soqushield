@@ -157,7 +157,7 @@ List<GuideCategory> get guideCategories => [
       sections: [
         GuideSection(
           body:
-              'Mainnet is the real Soqucoin network. A new wallet is created on it, and its address begins sq1. Until mainnet launches, the app shows your address and reads OFFLINE; your balance and sending open at mainnet launch, with no update needed.',
+              'Mainnet is the real Soqucoin network. A new wallet is created on it, and its address begins sq1. While the app cannot reach the network it reads OFFLINE and shows your address with the last balance it read; sending returns when the connection does.',
         ),
         GuideSection(
           heading: 'Stagenet',
@@ -251,7 +251,7 @@ List<GuideCategory> get guideCategories => [
         ),
         GuideSection(
           note:
-              'On Mainnet, sending opens at mainnet launch. Until then the balance reads 0 and the app refuses to send, by design.',
+              'On Mainnet, sending needs the network: until the app has read the chain, the balance shown is the last one it read (0 on a new wallet) and the app refuses to send, by design.',
         ),
       ],
     ),
@@ -263,7 +263,7 @@ List<GuideCategory> get guideCategories => [
       sections: [
         GuideSection(
           body:
-              'The Activity tab lists everything the wallet has done, newest first, grouped under TODAY, YESTERDAY, and dates. Sent and Received are your SOQ transfers. Tap a row to copy its receipt hash.',
+              'The Activity tab lists everything the wallet has done, newest first, grouped under TODAY, YESTERDAY, and dates. Sent and Received are your SOQ transfers. Tap a row for its details: the amount, the date, and the transaction hash, which COPY HASH copies. On Mainnet, VIEW ON EXPLORER opens the transaction on the public block explorer.',
         ),
         GuideSection(
           note:
@@ -301,8 +301,13 @@ List<GuideCategory> get guideCategories => [
           ],
         ),
         GuideSection(
+          heading: 'Reading with a finger',
+          body:
+              'Hold a finger on the figures and a copper line follows it, lighting the figure under it; lift the finger and the line fades. The clock\'s ring carries a lit head at the point the next block stands, and the ticks light as it passes them. None of this adds information: every figure is already in the text, and the motion switches off with the phone\'s reduce-motion setting.',
+        ),
+        GuideSection(
           note:
-              'On Mainnet before launch the node does not answer yet, so the clock reads offline and the SOQUPOOL card waits. Both come alive at mainnet launch with no update needed.',
+              'While the app cannot reach the Mainnet node, the clock reads offline and the SOQUPOOL card waits. Both come alive when the connection returns, with no update needed.',
         ),
       ],
     ),

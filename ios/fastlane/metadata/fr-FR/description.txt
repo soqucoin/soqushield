@@ -1,0 +1,21 @@
+SoquShield est le portefeuille en autogarde de Soqucoin, un réseau de couche 1 fondé sur la cryptographie post-quantique. Chaque transaction est signée sur votre appareil avec ML-DSA-44 (FIPS 204), le schéma de signature à base de réseaux euclidiens normalisé par le NIST et conçu pour résister aux attaques des futurs ordinateurs quantiques.
+
+VOS CLÉS, VOS CRYPTOS
+Vos clés sont générées et stockées uniquement sur votre appareil, protégées par votre code d'accès et la biométrie. Une phrase de récupération de 24 mots et un fichier de sauvegarde chiffré sauvegardent votre portefeuille. Soqucoin Labs ne détient jamais vos fonds et ne peut pas les déplacer.
+
+CE QUE VOUS POUVEZ FAIRE
+- Créer un portefeuille ou le restaurer à partir de ses 24 mots
+- Afficher votre adresse en texte ou en QR code
+- Envoyer et recevoir des SOQ avec des signatures post-quantiques
+- Consulter votre historique dans Activity
+- Field Manual : un guide d'utilisation complet dans l'app, sans compte
+
+RÉSEAUX
+Un nouveau portefeuille est créé sur Mainnet, où les soldes et les envois sont opérationnels. Stagenet, le réseau de test public, est accessible d'un geste dans Settings pour s'entraîner avec des jetons de test.
+
+CONÇU EN TOUTE TRANSPARENCE
+Le logiciel de nœud de Soqucoin est open source et a été audité par Halborn. Le portefeuille lit l'état de la chaîne via les passerelles de Soqucoin Labs. Pas de connexion, pas de publicité, pas d'analyse tierce, aucune donnée vendue.
+
+Pour l'instant, l'interface de l'app et le Field Manual sont en anglais.
+
+Des questions ? Le Field Manual intégré et https://soqu.org/help expliquent la configuration, l'envoi, la réception et la récupération.

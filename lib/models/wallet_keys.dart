@@ -102,6 +102,16 @@ enum SoqNetwork {
         return 'https://mainnet-api.soqu.org';
     }
   }
+
+  /// Public block explorer, or null where none reads this network.
+  String? get explorerUrl {
+    switch (this) {
+      case SoqNetwork.mainnet:
+        return 'https://explorer.soqu.org';
+      case SoqNetwork.stagenet:
+        return null;
+    }
+  }
 }
 
 /// Represents a seed phrase for wallet backup/restore

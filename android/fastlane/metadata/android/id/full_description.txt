@@ -1,0 +1,21 @@
+SoquShield adalah dompet self-custody untuk Soqucoin, jaringan Layer 1 yang dibangun di atas kriptografi pascakuantum. Setiap transaksi ditandatangani di perangkat Anda dengan ML-DSA-44 (FIPS 204), skema tanda tangan berbasis lattice yang distandarkan oleh NIST dan dirancang untuk menahan serangan dari komputer kuantum di masa depan.
+
+KUNCI ANDA, KOIN ANDA
+Kunci Anda dibuat dan disimpan hanya di perangkat Anda, dilindungi oleh kode sandi dan biometrik. Frasa pemulihan 24 kata dan file cadangan terenkripsi mencadangkan dompet Anda. Soqucoin Labs tidak pernah memegang dana Anda dan tidak dapat memindahkannya.
+
+YANG DAPAT ANDA LAKUKAN
+- Membuat dompet, atau memulihkannya dari 24 kata
+- Menampilkan alamat Anda sebagai teks atau kode QR
+- Mengirim dan menerima SOQ dengan tanda tangan pascakuantum
+- Melihat riwayat di Activity
+- Field Manual: panduan pengguna lengkap di dalam aplikasi, tanpa perlu akun
+
+JARINGAN
+Dompet baru dibuat di Mainnet, tempat saldo dan pengiriman sudah aktif. Stagenet, jaringan uji publik, tersedia dengan satu ketukan di Settings untuk berlatih dengan koin uji.
+
+DIBANGUN SECARA TERBUKA
+Perangkat lunak node Soqucoin bersifat open source dan telah diaudit oleh Halborn. Dompet membaca status rantai melalui gateway Soqucoin Labs. Tanpa login, tanpa iklan, tanpa analitik pihak ketiga, tanpa penjualan data.
+
+Saat ini, antarmuka aplikasi dan Field Manual masih dalam bahasa Inggris.
+
+Ada pertanyaan? Field Manual di dalam aplikasi dan https://soqu.org/help menjelaskan penyiapan, pengiriman, penerimaan, dan pemulihan.

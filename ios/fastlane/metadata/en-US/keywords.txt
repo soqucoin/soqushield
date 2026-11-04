@@ -1,0 +1,1 @@
+soqucoin,SOQ,wallet,post-quantum,quantum safe,ML-DSA,crypto,self custody,recovery phrase

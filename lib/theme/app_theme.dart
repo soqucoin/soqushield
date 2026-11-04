@@ -144,6 +144,17 @@ class AppTheme {
         color: SoquColors.fog.withValues(alpha: 0.3),
         thickness: 0.5,
       ),
+      // SnackBar text defaults to onInverseSurface, which this scheme leaves
+      // at surface (near-black), and the screens put SnackBars on the void2
+      // panel. The panel, its text, its action and its close icon are set
+      // here together.
+      snackBarTheme: SnackBarThemeData(
+        backgroundColor: Instrument.void2,
+        contentTextStyle:
+            _bodyFont.copyWith(color: Instrument.readout, fontSize: 13),
+        actionTextColor: Instrument.signal,
+        closeIconColor: Instrument.readout,
+      ),
     );
   }
 

@@ -1,0 +1,1 @@
+Carteira de autocustódia para a rede pós-quântica Soqucoin. Crie uma carteira, faça backup das 24 palavras e guarde seu endereço da Mainnet.

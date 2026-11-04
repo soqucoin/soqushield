@@ -1,0 +1,1 @@
+A carteira lite. A Mainnet é a rede padrão para uma carteira nova, o QR de recebimento traz apenas o seu endereço e o app foi enxugado para o essencial: criar, restaurar, fazer backup, receber, enviar, atividade, ajustes e o Field Manual. Saldos e envios na Mainnet são liberados no lançamento da mainnet. A Stagenet continua disponível em Settings.

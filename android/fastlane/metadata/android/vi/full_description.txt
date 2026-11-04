@@ -1,0 +1,21 @@
+SoquShield là ví tự lưu ký dành cho Soqucoin, một mạng Layer 1 được xây dựng trên mật mã hậu lượng tử. Mọi giao dịch đều được ký ngay trên thiết bị của bạn bằng ML-DSA-44 (FIPS 204), lược đồ chữ ký dựa trên lưới (lattice) do NIST chuẩn hóa, được thiết kế để chống lại các cuộc tấn công từ máy tính lượng tử trong tương lai.
+
+KHÓA CỦA BẠN, TIỀN CỦA BẠN
+Khóa của bạn chỉ được tạo và lưu trữ trên thiết bị của bạn, được bảo vệ bằng mật mã và sinh trắc học. Cụm từ khôi phục 24 từ và một tệp sao lưu được mã hóa giúp sao lưu ví của bạn. Soqucoin Labs không bao giờ nắm giữ tiền của bạn và không thể di chuyển chúng.
+
+BẠN CÓ THỂ LÀM GÌ
+- Tạo ví mới hoặc khôi phục ví từ 24 từ
+- Hiển thị địa chỉ dưới dạng văn bản hoặc mã QR
+- Gửi và nhận SOQ với chữ ký hậu lượng tử
+- Xem lịch sử giao dịch trong Activity
+- Field Manual: hướng dẫn sử dụng đầy đủ ngay trong ứng dụng, không cần tài khoản
+
+MẠNG
+Ví mới được tạo trên Mainnet, nơi số dư và chức năng gửi đã hoạt động. Stagenet, mạng thử nghiệm công khai, chỉ cách một lần chạm trong Settings để bạn thực hành với coin thử nghiệm.
+
+PHÁT TRIỂN CÔNG KHAI
+Phần mềm node của Soqucoin là mã nguồn mở và đã được Halborn kiểm toán. Ví đọc trạng thái chuỗi thông qua các cổng (gateway) của Soqucoin Labs. Không cần đăng nhập, không quảng cáo, không phân tích của bên thứ ba, không bán dữ liệu.
+
+Hiện tại, giao diện ứng dụng và Field Manual chỉ có bằng tiếng Anh.
+
+Có câu hỏi? Field Manual trong ứng dụng và https://soqu.org/help hướng dẫn cách thiết lập, gửi, nhận và khôi phục.

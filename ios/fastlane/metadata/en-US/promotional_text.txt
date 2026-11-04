@@ -1,0 +1,1 @@
+Self-custodial wallet for the Soqucoin post-quantum network. Create a wallet, back up its 24 words, and hold your mainnet address.

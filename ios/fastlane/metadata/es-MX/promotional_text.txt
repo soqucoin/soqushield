@@ -1,0 +1,1 @@
+Billetera de autocustodia para la red poscuántica Soqucoin. Crea una billetera, respalda sus 24 palabras y guarda tu dirección de Mainnet.

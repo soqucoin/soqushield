@@ -1,0 +1,1 @@
+Reliability fix: sending USDSOQ right after a swap now works every time. Previously a freshly-swapped USDSOQ balance could show correctly but fail to send with an "insufficient funds" message for a few minutes; the wallet now recognizes newly-received USDSOQ immediately and heals any balance that was mislabeled.

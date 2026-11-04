@@ -35,6 +35,59 @@ import '../../providers/network_provider.dart';
 import '../../providers/weather_provider.dart';
 import '../../services/weather_service.dart';
 
+/// The one-time notice after the move to Mainnet (build 27): why the wallet
+/// now opens on Mainnet and how the SOQUPOOL payout wallet relates to this
+/// one. Shown until the member dismisses it; the dismissal persists.
+class _MainnetSwitchNotice extends StatelessWidget {
+  const _MainnetSwitchNotice({required this.onDismiss});
+
+  final VoidCallback onDismiss;
+
+  static const _text =
+      'Soqucoin mainnet is live, so this wallet now opens on Mainnet. '
+      'SOQUPOOL pays the address saved in your pool settings, which may '
+      'belong to a different wallet than this one. To receive payouts in '
+      'this app, save this wallet\'s address in your pool settings. To use '
+      'the pool console wallet here instead, save this wallet\'s 24 words '
+      'first, then wipe it in Settings and restore the console wallet\'s '
+      'words. Stagenet is still available in Settings.';
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const Key('mainnet-switch-notice'),
+      margin: const EdgeInsets.only(top: 8, bottom: 14),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+      decoration: BoxDecoration(
+        color: Instrument.void2,
+        border: Border.all(color: Instrument.lineHi),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('MAINNET IS LIVE', style: Instrument.eyebrow(size: 10)),
+          const SizedBox(height: 8),
+          const Text(
+            _text,
+            style: TextStyle(
+                color: Instrument.readout, fontSize: 12.5, height: 1.4),
+          ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              key: const Key('mainnet-switch-notice-dismiss'),
+              onPressed: onDismiss,
+              style: TextButton.styleFrom(foregroundColor: Instrument.signal),
+              child: const Text('GOT IT'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class HomePilotScreen extends ConsumerStatefulWidget {
   const HomePilotScreen({super.key});
   @override
@@ -153,10 +206,10 @@ class _HomePilotScreenState extends ConsumerState<HomePilotScreen>
       error: (_, _) => ('BLOCK —', 'OFFLINE', false),
     );
 
-    // Mainnet before launch: the endpoints do not answer yet, so the status
-    // reads OFFLINE. Say why, in one line under it. Once this install has
-    // seen Mainnet answer, an OFFLINE is an outage and the line says that.
-    // On Stagenet an OFFLINE is a real outage and stays bare.
+    // Mainnet not yet answered on this install: the status reads OFFLINE
+    // with a connecting line under it. Once this install has seen Mainnet
+    // answer, an OFFLINE is an outage and the line says that. On Stagenet
+    // an OFFLINE is a real outage and stays bare.
     final reachable = statsAsync.when(
       data: (s) => s.reachable,
       loading: () => true,
@@ -185,7 +238,7 @@ class _HomePilotScreenState extends ConsumerState<HomePilotScreen>
               constraints: const BoxConstraints(minHeight: 30),
               child: mainnetWaiting
                   ? _quietLine(
-                      'Mainnet opens at launch. Your address is ready to receive.')
+                      'Connecting to Mainnet. Your address is ready to receive.')
                   : mainnetReconnecting
                       ? _quietLine('Reconnecting to the network.')
                       : const SizedBox.shrink(),
@@ -325,6 +378,13 @@ class _HomePilotScreenState extends ConsumerState<HomePilotScreen>
         physics: const AlwaysScrollableScrollPhysics(
             parent: BouncingScrollPhysics()),
         children: [
+          if (wallet.mainnetSwitchNotice &&
+              wallet.network == SoqNetwork.mainnet)
+            _MainnetSwitchNotice(
+              onDismiss: () => ref
+                  .read(walletProvider.notifier)
+                  .dismissMainnetSwitchNotice(),
+            ),
           const InstrumentDivider(),
           const SizedBox(height: 12),
           Text('ASSETS', style: Instrument.eyebrow(size: 10)),

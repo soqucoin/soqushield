@@ -55,9 +55,11 @@ const _allowedHosts = {
   'mainnet-rpc.soqu.org',
   'staging-rpc.soqu.org',
   'electrum.soqu.org',
+  'explorer.soqu.org',
   'soqushield-api.research-c26.workers.dev',
   'api.soqupool.com',
   'discord.gg',
+  'soqu.org',
 };
 
 /// The few files the app names by name in a string literal: the native
@@ -384,6 +386,27 @@ Future<void> _tearDownTree(WidgetTester tester) async {
 
 String _read(String path) => File(path).readAsStringSync();
 
+/// A wallet notifier that records the notice dismissal the home screen sends.
+class _NoticeNotifier extends MockWalletNotifier {
+  _NoticeNotifier(super.s);
+  int dismissed = 0;
+  @override
+  Future<void> dismissMainnetSwitchNotice() async {
+    dismissed++;
+    state = state.copyWith(mainnetSwitchNotice: false);
+  }
+}
+
+Widget _scopedNotice(_NoticeNotifier notifier, Widget child) => ProviderScope(
+      overrides: [
+        authProvider.overrideWith(() => MockAuthNotifier(AuthStatus.authenticated)),
+        authServiceProvider.overrideWithValue(FakeAuthService()),
+        sessionProvider.overrideWith(MockSessionNotifier.new),
+        walletProvider.overrideWith(() => notifier),
+      ],
+      child: child,
+    );
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -413,6 +436,9 @@ void main() {
       await tester.pumpWidget(_scoped(_wallet(SoqNetwork.mainnet, _mainnetAddress), MaterialApp.router(routerConfig: router)));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(const Duration(milliseconds: 100));
+      // The prompt waits for an active app plus a short settle (build 30).
+      await tester.pump(const Duration(milliseconds: 500));
       await tester.pump(const Duration(milliseconds: 100));
       expect(router.routerDelegate.currentConfiguration.uri.path, '/');
       await _tearDownTree(tester);
@@ -603,7 +629,7 @@ void main() {
           'lightning', 'apple', 'google', 'coin control', 'stagenet beta', 'this beta']) {
         expect(lower, isNot(contains(term)), reason: '"$term" names a removed feature');
       }
-      expect(lower, contains('opens at mainnet launch'));
+      expect(lower, contains('sending needs the network'));
       final dated = RegExp(
           r'\b(20\d\d|january|february|march|april|may|june|july|august|september|october|november|december)\b');
       expect(dated.hasMatch(lower), isFalse, reason: 'the manual names no date');
@@ -701,6 +727,32 @@ void main() {
       }
     });
 
+    test('the explorer host is named only by the network endpoints, once, as '
+        'the bare https origin', () {
+      // The same host fronts the mainnet API and RPC origins on other ports,
+      // which the dotted-name scan does not read; this pins the one use. The
+      // names are read as the scan reads them (any case, escapes decoded,
+      // adjacent literals joined), so a spelling cannot slip past the pin.
+      final files = Directory('lib')
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.dart'));
+      for (final f in files) {
+        final src = _read(f.path);
+        final uses = literalNames(src)
+            .where((e) => e.$2 == 'explorer.soqu.org')
+            .toList();
+        if (f.path.endsWith('lib/models/wallet_keys.dart')) {
+          expect(uses.length, 1,
+              reason: 'the network endpoints name the explorer host once');
+          expect(src, contains("'https://explorer.soqu.org'"));
+        } else {
+          expect(uses, isEmpty,
+              reason: '${f.path} names the explorer host; only the network endpoints do');
+        }
+      }
+    });
+
     test('the pool API host is named only by the weather service', () {
       final files = Directory('lib')
           .listSync(recursive: true)
@@ -754,11 +806,68 @@ void main() {
     });
   });
 
+  group('mainnet switch notice', () {
+    const card = Key('mainnet-switch-notice');
+    const dismiss = Key('mainnet-switch-notice-dismiss');
+    Future<void> settle(WidgetTester tester) async {
+      for (var i = 0; i < 5; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+    }
+
+    testWidgets('shows on Mainnet when the move is undismissed, with GOT IT', (tester) async {
+      final n = _NoticeNotifier(_wallet(SoqNetwork.mainnet, _mainnetAddress).copyWith(mainnetSwitchNotice: true));
+      await tester.pumpWidget(_scopedNotice(n, const MaterialApp(home: HomePilotScreen())));
+      await settle(tester);
+      expect(find.byKey(card), findsOneWidget);
+      expect(find.text('GOT IT'), findsOneWidget);
+      expect(find.textContaining('opens on Mainnet'), findsOneWidget);
+      await _tearDownTree(tester);
+    });
+
+    testWidgets('stays hidden on Stagenet even while the move is undismissed', (tester) async {
+      final n = _NoticeNotifier(_wallet(SoqNetwork.stagenet, _stagenetAddress).copyWith(mainnetSwitchNotice: true));
+      await tester.pumpWidget(_scopedNotice(n, const MaterialApp(home: HomePilotScreen())));
+      await settle(tester);
+      expect(find.byKey(card), findsNothing);
+      await _tearDownTree(tester);
+    });
+
+    testWidgets('stays hidden when there was no move', (tester) async {
+      final n = _NoticeNotifier(_wallet(SoqNetwork.mainnet, _mainnetAddress));
+      await tester.pumpWidget(_scopedNotice(n, const MaterialApp(home: HomePilotScreen())));
+      await settle(tester);
+      expect(find.byKey(card), findsNothing);
+      await _tearDownTree(tester);
+    });
+
+    testWidgets('GOT IT dismisses through the notifier and removes the card', (tester) async {
+      // A phone-tall surface: on the default 800 by 600 the button sits
+      // below the fold of the hero and a tap lands outside the view.
+      tester.view.physicalSize = const Size(800, 1600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+      final n = _NoticeNotifier(_wallet(SoqNetwork.mainnet, _mainnetAddress).copyWith(mainnetSwitchNotice: true));
+      await tester.pumpWidget(_scopedNotice(n, const MaterialApp(home: HomePilotScreen())));
+      await settle(tester);
+      await tester.ensureVisible(find.byKey(dismiss));
+      await settle(tester);
+      await tester.tap(find.byKey(dismiss));
+      await settle(tester);
+      expect(n.dismissed, 1);
+      expect(find.byKey(card), findsNothing);
+      await _tearDownTree(tester);
+    });
+  });
+
   group('version', () {
     test('is the lite release', () {
-      expect(kAppVersion, 'v2.4.1');
-      expect(RegExp(r'^version:\s*2\.4\.1\+25\s*$', multiLine: true).hasMatch(_read('pubspec.yaml')),
-          isTrue, reason: 'pubspec version must be 2.4.1+25, the build with the Network cards and the Send fit');
+      expect(kAppVersion, 'v2.5.0');
+      expect(RegExp(r'^version:\s*2\.5\.0\+32\s*$', multiLine: true).hasMatch(_read('pubspec.yaml')),
+          isTrue, reason: 'pubspec version must be 2.5.0+32, the last build uploaded without the export-compliance key (its value false was set in App Store Connect; the next upload carries the key again); it carries the one-time move to Mainnet that survives a failed storage write');
     });
   });
 }

@@ -1,0 +1,1 @@
+Soqucoin kuantum sonrası ağı için kendi kendine saklama cüzdanı. Cüzdan oluşturun, 24 kelimesini yedekleyin ve Mainnet adresinizi edinin.

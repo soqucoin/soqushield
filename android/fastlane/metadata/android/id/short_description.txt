@@ -1,0 +1,1 @@
+Dompet self-custody untuk Soqucoin, jaringan pascakuantum.

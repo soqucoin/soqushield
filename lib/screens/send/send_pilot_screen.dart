@@ -282,9 +282,9 @@ class _SendPilotScreenState extends ConsumerState<SendPilotScreen>
     final overspend = amount > 0 && amount + fee > balance;
     final change = (balance - amount - fee).clamp(0.0, double.infinity);
 
-    // Before the mainnet endpoints answer, the chain reads no height and the
-    // balance is 0: say so in place rather than leave a silent refusal. Once
-    // this install has seen Mainnet answer, no height is an outage.
+    // Until this install has seen Mainnet answer, the chain reads no height
+    // and the balance is 0: say so in place rather than leave a silent
+    // refusal. Once it has seen Mainnet answer, no height is an outage.
     final noHeight =
         wallet.network == SoqNetwork.mainnet && wallet.blockHeight == 0;
     final seenLive = ref.watch(mainnetSeenLiveProvider);
@@ -398,8 +398,8 @@ class _SendPilotScreenState extends ConsumerState<SendPilotScreen>
             const SizedBox(height: 14),
             Text(
               waitingForMainnet
-                  ? 'Sending opens at mainnet launch. Until the network '
-                      'answers, this wallet shows your address and no balance.'
+                  ? 'Sending needs the network. Until it answers, the '
+                      'balance shown is the last one this wallet read.'
                   : 'Waiting for the network. Sending resumes when it answers.',
               textAlign: TextAlign.center,
               style: TextStyle(
