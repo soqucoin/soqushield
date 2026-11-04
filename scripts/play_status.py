@@ -6,7 +6,9 @@ exchanges it for an access token, opens a throwaway edit, reads every track,
 then deletes the edit. Credentials: PLAY_JSON_KEY_PATH in
 ~/.soqushield-release.env.
 
-Usage: play_status.py
+Usage: play_status.py            every track and its releases
+       play_status.py --max-code  the highest version code on any track, as one integer (0 with none);
+                                  the release workflow skips an upload whose build number is not above it
 """
 import base64
 import json
@@ -72,6 +74,13 @@ def call(tok, method, path, body=None):
         return json.loads(data) if data else {}
 
 
+def max_version_code(tracks):
+    """The highest version code in any release on any track of a tracks listing, 0 with none."""
+    codes = [int(c) for t in tracks.get("tracks", []) for rel in t.get("releases", [])
+             for c in (rel.get("versionCodes") or [])]
+    return max(codes) if codes else 0
+
+
 def main():
     load_env()
     tok = token()
@@ -79,6 +88,9 @@ def main():
     edit_id = edit["id"]
     try:
         tracks = call(tok, "GET", f"/applications/{PACKAGE}/edits/{edit_id}/tracks")
+        if "--max-code" in sys.argv[1:]:
+            print(max_version_code(tracks))
+            return
         for t in tracks.get("tracks", []):
             print(f"track: {t['track']}")
             for rel in t.get("releases", []):

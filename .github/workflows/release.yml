@@ -32,6 +32,7 @@ permissions:
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
+  queue: max
 
 env:
   FLUTTER_VERSION: "3.41.1"
@@ -94,12 +95,41 @@ jobs:
           set -euo pipefail
           umask 077
           printf '%s' "$ANDROID_UPLOAD_KEYSTORE_B64" | base64 -d > android/app/upload-keystore.jks
-          printf 'storeFile=upload-keystore.jks\nstorePassword=%s\nkeyAlias=soqushield\nkeyPassword=%s\n' \
-            "$ANDROID_KEYSTORE_PASSWORD" "$ANDROID_KEY_PASSWORD" > android/key.properties
+          # Gradle reads key.properties with Properties.load, which treats a backslash as an escape
+          # and drops leading whitespace, so the two passwords are written in that file's escaping.
+          python3 - <<'PY'
+          import os
+          def esc(v):
+              v = v.replace("\\", "\\\\")
+              return "\\" + v if v[:1] in (" ", "\t") else v
+          with open("android/key.properties", "w", encoding="utf-8") as f:
+              f.write("storeFile=upload-keystore.jks\n")
+              f.write("storePassword=" + esc(os.environ["ANDROID_KEYSTORE_PASSWORD"]) + "\n")
+              f.write("keyAlias=soqushield\n")
+              f.write("keyPassword=" + esc(os.environ["ANDROID_KEY_PASSWORD"]) + "\n")
+          PY
           printf '%s' "$PLAY_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/play-service-account.json"
-      - run: sudo gem install fastlane -N -v "$FASTLANE_VERSION"
-      - run: flutter pub get
+      - name: Is this build number already on Google Play?
+        id: present
+        env:
+          BUILD: ${{ needs.version.outputs.build }}
+          PLAY_JSON_KEY_PATH: ${{ runner.temp }}/play-service-account.json
+        run: |
+          set -euo pipefail
+          top=$(python3 scripts/play_status.py --max-code)
+          echo "highest version code on any track: $top; this checkout: $BUILD"
+          if [ "$top" -ge "$BUILD" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "build $BUILD is already on Google Play; nothing to upload. Raise the build number in pubspec.yaml for the next upload."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.present.outputs.skip != 'true'
+        run: sudo gem install fastlane -N -v "$FASTLANE_VERSION"
+      - if: steps.present.outputs.skip != 'true'
+        run: flutter pub get
       - name: Build the bundle and upload it to the internal track
+        if: steps.present.outputs.skip != 'true'
         env:
           PLAY_JSON_KEY_PATH: ${{ runner.temp }}/play-service-account.json
         run: cd android && fastlane beta
@@ -128,8 +158,26 @@ jobs:
           mkdir -p "$RUNNER_TEMP/asc"
           printf '%s\n' "$ASC_KEY_P8" > "$RUNNER_TEMP/asc/AuthKey.p8"
           echo "ASC_KEY_PATH=$RUNNER_TEMP/asc/AuthKey.p8" >> "$GITHUB_ENV"
-      - run: flutter pub get
+      - name: Is this build number already on App Store Connect?
+        id: present
+        env:
+          BUILD: ${{ needs.version.outputs.build }}
+        run: |
+          set -euo pipefail
+          live=$(python3 scripts/asc.py build "$BUILD" | python3 -c 'import sys, json
+          d = json.load(sys.stdin)
+          print(sum(1 for b in d.get("data", []) if not b["attributes"].get("expired")))')
+          echo "builds numbered $BUILD on App Store Connect, not expired: $live"
+          if [ "$live" != 0 ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "build $BUILD is already on App Store Connect; nothing to upload. Raise the build number in pubspec.yaml for the next upload."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.present.outputs.skip != 'true'
+        run: flutter pub get
       - name: Build the release archive with cloud signing
+        if: steps.present.outputs.skip != 'true'
         run: |
           set -euo pipefail
           flutter build ios --release --no-codesign
@@ -142,6 +190,7 @@ jobs:
             -allowProvisioningUpdates -authenticationKeyPath "$ASC_KEY_PATH" \
             -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID"
       - name: Check every binary's platform and upload to TestFlight
+        if: steps.present.outputs.skip != 'true'
         run: |
           set -euo pipefail
           ipa=$(ls "$GITHUB_WORKSPACE"/build/ios/ipa/*.ipa | head -1)
