@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -61,6 +62,26 @@ class SecureStorageService {
   static String _scoped(String id, String flatKey) =>
       WalletRecord.scopeKey(id, flatKey);
 
+  /// The wallet whose secrets every accessor on this instance reads and
+  /// writes. Defaults to the wallet that predates the registry, whose keys
+  /// are the un-prefixed ones this app has always used.
+  String _walletId = WalletRecord.primaryId;
+
+  /// The wallet this instance is open on.
+  String get walletId => _walletId;
+
+  /// Point every secret accessor at [id].
+  ///
+  /// ⛔ The registry itself and the active-wallet pointer are NOT scoped —
+  /// they describe the device, not a wallet, and scoping them would give
+  /// each wallet its own private list of wallets.
+  void setWallet(String id) {
+    _walletId = id;
+  }
+
+  /// This instance's key for [flatKey].
+  String _k(String flatKey) => _scoped(_walletId, flatKey);
+
   String mnemonicKeyFor(String id) => _scoped(id, _keyMnemonic);
   String addressKeyFor(String id) => _scoped(id, _keyAddress);
 
@@ -87,7 +108,7 @@ class SecureStorageService {
 
   /// Check if a wallet exists on this device.
   Future<bool> hasWallet() async {
-    final mnemonic = await _storage.read(key: _keyMnemonic);
+    final mnemonic = await _storage.read(key: _k(_keyMnemonic));
     return mnemonic != null && mnemonic.isNotEmpty;
   }
 
@@ -98,32 +119,53 @@ class SecureStorageService {
     required WalletKeys keys,
     required SoqNetwork network,
   }) async {
-    await _storage.write(key: _keyMnemonic, value: mnemonic);
+    await _writeSecrets(_walletId,
+        mnemonic: mnemonic, keys: keys, network: network);
+  }
+
+  /// Write one wallet's secrets under [id]'s namespace.
+  ///
+  /// The mnemonic lands FIRST. Every other value here is derivable from it,
+  /// so a run cut short part way leaves a wallet whose seed is present and
+  /// whose metadata can be rebuilt — never the reverse.
+  Future<void> _writeSecrets(
+    String id, {
+    required String mnemonic,
+    required WalletKeys keys,
+    required SoqNetwork network,
+  }) async {
+    await _storage.write(key: _scoped(id, _keyMnemonic), value: mnemonic);
     await _storage.write(
-      key: _keyPublicKeyHex,
-      value: keys.publicKey.map((b) => b.toRadixString(16).padLeft(2, '0')).join(),
+      key: _scoped(id, _keyPublicKeyHex),
+      value:
+          keys.publicKey.map((b) => b.toRadixString(16).padLeft(2, '0')).join(),
     );
-    await _storage.write(key: _keyAddress, value: keys.address);
-    await _storage.write(key: _keyDerivationPath, value: keys.derivationPath);
-    await _storage.write(key: _keyAccountIndex, value: keys.accountIndex.toString());
-    await _storage.write(key: _keyNetwork, value: network.name);
-    await _storage.write(key: _keyCreatedAt, value: DateTime.now().toIso8601String());
+    await _storage.write(key: _scoped(id, _keyAddress), value: keys.address);
+    await _storage.write(
+        key: _scoped(id, _keyDerivationPath), value: keys.derivationPath);
+    await _storage.write(
+        key: _scoped(id, _keyAccountIndex),
+        value: keys.accountIndex.toString());
+    await _storage.write(key: _scoped(id, _keyNetwork), value: network.name);
+    await _storage.write(
+        key: _scoped(id, _keyCreatedAt),
+        value: DateTime.now().toIso8601String());
   }
 
   /// Read the stored mnemonic (needed for key re-derivation and signing).
   /// Returns null if no wallet exists.
   Future<String?> readMnemonic() async {
-    return _storage.read(key: _keyMnemonic);
+    return _storage.read(key: _k(_keyMnemonic));
   }
 
   /// Read the stored address (fast path — no re-derivation needed).
   Future<String?> readAddress() async {
-    return _storage.read(key: _keyAddress);
+    return _storage.read(key: _k(_keyAddress));
   }
 
   /// Read the stored network.
   Future<SoqNetwork> readNetwork() async {
-    final name = await _storage.read(key: _keyNetwork);
+    final name = await _storage.read(key: _k(_keyNetwork));
     return SoqNetwork.values.firstWhere(
       (n) => n.name == name,
       orElse: () => SoqNetwork.stagenet,
@@ -165,7 +207,7 @@ class SecureStorageService {
 
   /// Read the stored account index.
   Future<int> readAccountIndex() async {
-    final idx = await _storage.read(key: _keyAccountIndex);
+    final idx = await _storage.read(key: _k(_keyAccountIndex));
     return int.tryParse(idx ?? '0') ?? 0;
   }
 
@@ -241,6 +283,71 @@ class SecureStorageService {
     await _storage.write(key: _keyActiveWallet, value: id);
   }
 
+  /// A wallet id that is not [WalletRecord.primaryId] and that no wallet on
+  /// this device already carries.
+  ///
+  /// Hex from a secure generator: the id becomes part of a storage key, so it
+  /// is kept to characters that cannot change a key's meaning, and it is not
+  /// a counter — a predictable id is a guessable key name.
+  static String _freshWalletId(Set<String> taken) {
+    final rng = Random.secure();
+    for (var attempt = 0; attempt < 64; attempt++) {
+      const hex = '0123456789abcdef';
+      final id = List.generate(16, (_) => hex[rng.nextInt(16)]).join();
+      if (id != WalletRecord.primaryId && !taken.contains(id)) return id;
+    }
+    throw StateError('could not find an unused wallet id');
+  }
+
+  /// Add a wallet ALONGSIDE the ones already on this device.
+  ///
+  /// ⛔ TOUCHES NO OTHER WALLET'S KEYS. The new wallet is written under a
+  /// namespace of its own, derived from an id no wallet here carries. The
+  /// pre-registry wallet keeps the un-prefixed keys it has always had, so
+  /// adding a second wallet cannot land on the first one's mnemonic.
+  ///
+  /// ⛔ SECRETS FIRST, THEN THE ROW. A run cut short between them leaves a
+  /// seed under a namespace nothing points at: unreachable, and costing
+  /// nothing. The other order would put a wallet in the list whose seed was
+  /// never written — a wallet the owner can see, name and be shown an
+  /// address for, which can never sign.
+  ///
+  /// ⛔ DOES NOT OPEN IT. The active wallet is unchanged: opening one is a
+  /// separate act, and it is gated on the device credential.
+  Future<WalletRecord> addWallet({
+    required String name,
+    required String mnemonic,
+    required WalletKeys keys,
+    required SoqNetwork network,
+  }) async {
+    if (mnemonic.trim().isEmpty) {
+      throw ArgumentError.value(mnemonic, 'mnemonic', 'is empty');
+    }
+
+    // The wallet that predates the registry has to be in the list before a
+    // second one joins it, or it is the one wallet with no entry.
+    await adoptExistingWallet();
+
+    final wallets = await listWallets();
+    final id = _freshWalletId(wallets.map((w) => w.id).toSet());
+
+    await _writeSecrets(id, mnemonic: mnemonic, keys: keys, network: network);
+
+    final record = WalletRecord(
+      id: id,
+      name: name.trim().isEmpty ? 'Wallet' : name.trim(),
+      address: keys.address,
+      network: network,
+      createdAt: DateTime.now(),
+    );
+    await putWallet(record);
+    return record;
+  }
+
+  /// Every address already on this device, for refusing a duplicate import.
+  Future<Set<String>> knownAddresses() async =>
+      (await listWallets()).map((w) => w.address).toSet();
+
   /// Bring a pre-registry wallet into the registry, moving nothing.
   ///
   /// Call on boot. It is a no-op when there is no wallet on the device, and
@@ -294,12 +401,12 @@ class SecureStorageService {
 
   /// Mark that the user has confirmed their seed phrase backup.
   Future<void> confirmBackup() async {
-    await _storage.write(key: _keyBackupConfirmed, value: 'true');
+    await _storage.write(key: _k(_keyBackupConfirmed), value: 'true');
   }
 
   /// Check if the user has confirmed their seed phrase backup.
   Future<bool> isBackupConfirmed() async {
-    final val = await _storage.read(key: _keyBackupConfirmed);
+    final val = await _storage.read(key: _k(_keyBackupConfirmed));
     return val == 'true';
   }
 

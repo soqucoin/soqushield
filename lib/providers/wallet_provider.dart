@@ -235,13 +235,15 @@ class WalletNotifier extends Notifier<WalletState> {
 
   /// Point the cached coin set and the history at [walletId]'s partition.
   ///
-  /// ⛔ Call this BEFORE either is read. The coin set feeds input selection,
-  /// so reading it under the wrong wallet offers outputs this wallet holds
-  /// no key for, and the history under the wrong wallet is another wallet's
-  /// payment record.
+  /// ⛔ Call this BEFORE anything is read. The secrets, the coin set and the
+  /// history all follow it. The coin set feeds input selection, so reading
+  /// it under the wrong wallet offers outputs this wallet holds no key for;
+  /// the history under the wrong wallet is another wallet's payment record;
+  /// and the seed under the wrong wallet is another wallet entirely.
   ///
   /// Synchronous on both: the caller loads immediately afterwards.
   void _applyWallet(String walletId) {
+    _storageService.setWallet(walletId);
     _utxoService.setWalletSync(walletId);
     TxHistoryService.setWallet(walletId);
   }
@@ -265,6 +267,14 @@ class WalletNotifier extends Notifier<WalletState> {
   Future<void> _loadExistingWallet() async {
     try {
       debugPrint('BOOT[1/5] Checking secure storage for existing wallet...');
+
+      // ⛔ THE OPEN WALLET IS RESOLVED FIRST, before a single secret is read.
+      // Every accessor below — the mnemonic, the network, the account index,
+      // the backup flag — reads whichever wallet the services are pointed
+      // at. Reading them first and pointing afterwards would re-derive one
+      // wallet's keys from another wallet's seed.
+      _applyWallet(await _resolveActiveWallet());
+
       final hasWallet = await _storageService.hasWallet();
       if (!hasWallet) {
         debugPrint('BOOT[1/5] No wallet found — showing onboarding');
@@ -299,11 +309,6 @@ class WalletNotifier extends Notifier<WalletState> {
         network: network,
         accountIndex: accountIndex,
       );
-
-      // The partitions follow the OPEN WALLET before anything is read from
-      // them or cleared — the clear below drops the coin set, and it must
-      // drop the open wallet's.
-      _applyWallet(await _resolveActiveWallet());
 
       // ── Stored address differs from the derived one ──
       // Either the key derivation algorithm changed (Round 3 → FIPS 204) or
@@ -418,6 +423,79 @@ class WalletNotifier extends Notifier<WalletState> {
       );
     }
   }
+
+  // ── More than one wallet ──
+
+  /// Create a wallet ALONGSIDE the open one, with its own seed.
+  ///
+  /// ⛔ The open wallet is not touched and not closed. Its secrets, its
+  /// cached coins and its history stay exactly where they are, and the
+  /// active wallet does not move: opening the new one is a separate act,
+  /// gated on the device credential.
+  ///
+  /// Each wallet carries an independent seed. No wallet here is derivable
+  /// from another, so losing one set of words loses one wallet and tells an
+  /// attacker nothing about the rest.
+  Future<WalletRecord?> createAdditionalWallet({required String name}) async {
+    try {
+      final seed = _keyService.generateMnemonic();
+      final keys = await _keyService.deriveFromMnemonic(
+        seed,
+        network: state.network,
+      );
+      final record = await _storageService.addWallet(
+        name: name,
+        mnemonic: seed.mnemonic,
+        keys: keys,
+        network: state.network,
+      );
+      debugPrint('WALLETS: added ${record.id} on ${state.network.name}');
+      return record;
+    } catch (e) {
+      debugPrint('WALLETS: create failed: $e');
+      state = state.copyWith(error: 'Could not add the wallet: $e');
+      return null;
+    }
+  }
+
+  /// Import a wallet from words it already has, alongside the open one.
+  ///
+  /// Refuses words that are not a valid phrase, and refuses a phrase whose
+  /// address is already on this device: a second entry for one wallet would
+  /// show the same coins twice and give the owner two names for one thing.
+  Future<WalletRecord?> importAdditionalWallet({
+    required String name,
+    required String mnemonic,
+  }) async {
+    try {
+      final words = mnemonic.trim().toLowerCase();
+      if (!_keyService.validateMnemonic(words)) {
+        throw Exception('Those words are not a valid recovery phrase');
+      }
+      final keys = await _keyService.deriveFromMnemonic(
+        SeedPhrase(words: words.split(RegExp(r'\s+')), backupConfirmed: true),
+        network: state.network,
+      );
+      if ((await _storageService.knownAddresses()).contains(keys.address)) {
+        throw Exception('That wallet is already on this device');
+      }
+      final record = await _storageService.addWallet(
+        name: name,
+        mnemonic: words,
+        keys: keys,
+        network: state.network,
+      );
+      debugPrint('WALLETS: imported ${record.id} on ${state.network.name}');
+      return record;
+    } catch (e) {
+      debugPrint('WALLETS: import failed: $e');
+      state = state.copyWith(error: '$e'.replaceFirst('Exception: ', ''));
+      return null;
+    }
+  }
+
+  /// Every wallet on this device, for a list the owner can read.
+  Future<List<WalletRecord>> listWallets() => _storageService.listWallets();
 
   /// Restore wallet from existing mnemonic on the current network.
   Future<void> restoreFromMnemonic(String mnemonic) async {
