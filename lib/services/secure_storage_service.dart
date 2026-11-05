@@ -273,8 +273,10 @@ class SecureStorageService {
     ];
   }
 
-  /// The tail of the registry's write queue, shared by EVERY instance.
-  static Future<void> _registryTail = Zone.root.run(Future<void>.value);
+  /// The registry write queue, shared by EVERY instance: whether a writer
+  /// holds it, and the writers waiting their turn, oldest first.
+  static bool _registryBusy = false;
+  static final List<Completer<void>> _registryWaiters = [];
 
   /// Run [body] as the only registry read-modify-write in flight.
   ///
@@ -284,15 +286,30 @@ class SecureStorageService {
   /// added wallet missing from the list, or a rename undone. The queue is
   /// static because the app holds more than one storage instance.
   ///
-  /// The queue's own futures live in the root zone. A future runs its
-  /// listeners through the zone it was made in, so a link made inside one
-  /// caller's zone (a widget test's fake clock, which is abandoned when the
-  /// test ends) would hold every later writer that queues behind it.
-  static Future<T> _mutateRegistry<T>(Future<T> Function() body) {
-    final previous = _registryTail;
-    final done = Zone.root.run(Completer<void>.new);
-    _registryTail = done.future;
-    return previous.then((_) => body()).whenComplete(done.complete);
+  /// The queue holds no future between writers: a writer that finds it free
+  /// runs at once, and one that waits does so on a completer made in its
+  /// own zone. A future runs its listeners through the zone it was made in,
+  /// so a chain of futures carried from one writer to the next would hand a
+  /// later writer to a zone that may have stopped running (a widget test's
+  /// fake clock does, when its test ends).
+  static Future<T> _mutateRegistry<T>(Future<T> Function() body) async {
+    if (_registryBusy) {
+      final turn = Completer<void>();
+      _registryWaiters.add(turn);
+      await turn.future;
+    } else {
+      _registryBusy = true;
+    }
+    try {
+      return await body();
+    } finally {
+      if (_registryWaiters.isNotEmpty) {
+        // The turn passes straight on; the queue stays busy.
+        _registryWaiters.removeAt(0).complete();
+      } else {
+        _registryBusy = false;
+      }
+    }
   }
 
   Future<void> _writeRegistry(List<WalletRecord> wallets) async {
