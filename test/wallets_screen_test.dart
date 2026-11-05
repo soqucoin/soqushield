@@ -1,6 +1,8 @@
 // The wallets screen: one row per wallet, which one is open, and the three
 // things the owner can do from it.
 
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -32,6 +34,16 @@ class _RefusingOverrides extends HttpOverrides {
 class _RefusingAuth extends FakeAuthService {
   @override
   Future<bool> authenticateWithBiometrics() async => false;
+}
+
+/// Holds the credential prompt open until the test releases it.
+class _HeldAuth extends FakeAuthService {
+  final release = Completer<bool>();
+  @override
+  Future<bool> authenticateWithBiometrics() async {
+    prompts++;
+    return release.future;
+  }
 }
 
 const _addrA =
@@ -251,6 +263,84 @@ void main() {
     expect(find.text('Copy'), findsNothing);
     expect(find.textContaining('already on this device'), findsOneWidget);
 
+    await quiesce(t);
+  });
+
+  testWidgets('while one switch waits on the credential, no row starts another',
+      (t) async {
+    container.dispose();
+    final auth = _HeldAuth();
+    container = makeContainer(auth);
+    final second = await addSecond();
+    final third = await container
+        .read(walletProvider.notifier)
+        .importAdditionalWallet(
+            name: 'Third',
+            mnemonic: 'zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong');
+    await pumpScreen(t);
+
+    await t.tap(find.byKey(ValueKey('wallet ${second.id}')));
+    await t.pumpAndSettle();
+    await t.tap(find.byKey(const ValueKey('dialog confirm')));
+    await t.pump(const Duration(milliseconds: 100));
+    expect(auth.prompts, 1, reason: 'the first switch is at its prompt');
+
+    await t.tap(find.byKey(ValueKey('wallet ${third!.id}')));
+    await t.pump(const Duration(milliseconds: 300));
+    expect(find.textContaining('Open Third?'), findsNothing,
+        reason: 'a second switch would race the first');
+
+    auth.release.complete(false);
+    await t.pumpAndSettle();
+    await quiesce(t);
+  });
+
+  testWidgets('the OPEN mark follows the wallet, not its stored address',
+      (t) async {
+    await addSecond();
+    await pumpScreen(t);
+
+    // The registry row's copy of the address has gone stale.
+    final rows = jsonDecode(secureStore['soq_wallets_v1']!) as List;
+    rows[0]['address'] = 'sq1pstale0000000000000000000000000000';
+    secureStore['soq_wallets_v1'] = jsonEncode(rows);
+    container.invalidate(walletListProvider);
+    for (var i = 0; i < 10; i++) {
+      await t.pump(const Duration(milliseconds: 50));
+    }
+
+    expect(find.text('OPEN'), findsOneWidget,
+        reason: 'the open wallet is still marked open');
+
+    await quiesce(t);
+  });
+
+  testWidgets('the rename control is a named button', (t) async {
+    await pumpScreen(t);
+    expect(find.byTooltip('Rename Main wallet'), findsOneWidget,
+        reason: 'a screen reader names the wallet it renames');
+    expect(
+        find.ancestor(
+            of: find.byIcon(Icons.edit_outlined),
+            matching: find.byType(IconButton)),
+        findsOneWidget);
+
+    await quiesce(t);
+  });
+
+  testWidgets('the phrase field neither corrects nor learns the words',
+      (t) async {
+    await pumpScreen(t);
+
+    await t.tap(find.byKey(const ValueKey('nav Import a wallet')));
+    await t.pumpAndSettle();
+    final phrase = t.widget<TextField>(find.byType(TextField).at(1));
+    expect(phrase.autocorrect, isFalse);
+    expect(phrase.enableSuggestions, isFalse);
+    expect(phrase.enableIMEPersonalizedLearning, isFalse);
+
+    await t.tap(find.byKey(const ValueKey('dialog cancel')));
+    await t.pumpAndSettle();
     await quiesce(t);
   });
 

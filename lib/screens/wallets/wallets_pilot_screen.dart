@@ -42,8 +42,11 @@ class _WalletsPilotScreenState extends ConsumerState<WalletsPilotScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Rebuilds the list whenever the open wallet changes.
-    final openAddress = ref.watch(walletProvider.select((w) => w.address));
+    // Rebuilds whenever the open wallet changes. The OPEN mark follows the
+    // wallet's id, not its address: the address moves with the network,
+    // and the row's copy of it is only as fresh as the registry.
+    ref.watch(walletProvider.select((w) => (w.address, w.network)));
+    final openId = ref.read(walletProvider.notifier).openWalletId;
     final wallets = ref.watch(walletListProvider);
 
     return Scaffold(
@@ -62,7 +65,7 @@ class _WalletsPilotScreenState extends ConsumerState<WalletsPilotScreen> {
                   children: [
                     _section('ON THIS DEVICE'),
                     for (final w in list)
-                      _walletRow(w, open: w.address == openAddress),
+                      _walletRow(w, open: w.id == openId),
                     _section('ADD'),
                     _navTile(
                       Icons.add_circle_outline_rounded,
@@ -98,7 +101,9 @@ class _WalletsPilotScreenState extends ConsumerState<WalletsPilotScreen> {
     final busy = _busyId == w.id;
     return _rowFrame(
       key: ValueKey('wallet ${w.id}'),
-      onTap: busy ? null : () => _onRowTap(w, open: open),
+      // While any switch is waiting on the credential, no row starts
+      // another: one switch at a time, and the first one's prompt decides.
+      onTap: _busyId != null ? null : () => _onRowTap(w, open: open),
       child: Row(
         children: [
           // A copper dot marks the wallet that is open; the others read as
@@ -148,15 +153,17 @@ class _WalletsPilotScreenState extends ConsumerState<WalletsPilotScreen> {
                   strokeWidth: 1.4, color: Instrument.signal),
             )
           else
-            GestureDetector(
+            // A real button: a screen reader names it after the wallet it
+            // renames, and a keyboard can reach and press it.
+            IconButton(
               key: ValueKey('rename ${w.id}'),
-              onTap: () => _renameWallet(w),
-              behavior: HitTestBehavior.opaque,
-              child: const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                child: Icon(Icons.edit_outlined,
-                    size: 16, color: Instrument.faint),
-              ),
+              onPressed: () => _renameWallet(w),
+              tooltip: 'Rename ${w.name}',
+              icon: const Icon(Icons.edit_outlined, size: 16),
+              color: Instrument.faint,
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+              constraints: const BoxConstraints(),
             ),
         ],
       ),
@@ -425,6 +432,7 @@ class _Field extends StatelessWidget {
     this.maxLength,
     this.maxLines = 1,
     this.autofocus = false,
+    this.secret = false,
   });
   final TextEditingController controller;
   final String hint;
@@ -432,12 +440,20 @@ class _Field extends StatelessWidget {
   final int maxLines;
   final bool autofocus;
 
+  /// The field takes a recovery phrase: no correction, no suggestions, and
+  /// no keyboard may learn the words for its personal dictionary. A
+  /// correction can also turn a valid phrase into an invalid one.
+  final bool secret;
+
   @override
   Widget build(BuildContext context) => TextField(
         controller: controller,
         autofocus: autofocus,
         maxLength: maxLength,
         maxLines: maxLines,
+        autocorrect: !secret,
+        enableSuggestions: !secret,
+        enableIMEPersonalizedLearning: !secret,
         style: const TextStyle(color: Instrument.readout, fontSize: 14),
         decoration: InputDecoration(
           hintText: hint,
@@ -545,7 +561,11 @@ class _ImportDialogState extends State<_ImportDialog> {
             autofocus: true,
           ),
           const SizedBox(height: 12),
-          _Field(controller: _words, hint: 'Your recovery phrase', maxLines: 3),
+          _Field(
+              controller: _words,
+              hint: 'Your recovery phrase',
+              maxLines: 3,
+              secret: true),
           const SizedBox(height: 10),
           Text('The words are read on this device and never leave it.',
               style: TextStyle(color: Instrument.faint, fontSize: 11)),
