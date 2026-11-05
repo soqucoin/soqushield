@@ -10,9 +10,28 @@ This repository is the source of the app on Google Play and the App Store. The c
 - Back it up: the recovery phrase, and an encrypted `.soqbackup` file
 - Show the address as text or as a QR code
 - Send and receive SOQ with post-quantum signatures
+- Optionally show what a balance is worth, in any of 22 currencies
 - Activity: the wallet's history, rebuilt from the chain after a restore
 - Network: the chain's block clock and public figures, and SOQUPOOL's published figures
 - The Field Manual: the in-app user guide, no account needed
+
+## Money figures
+
+The money figure is off by default. Turn it on in Settings and a mainnet
+balance, the amount being typed on Send, and each Activity row carry what they
+are worth, in any of 22 currencies.
+
+The rate comes from a route Soqucoin caches. The app never contacts a market
+site itself. The request names a currency and nothing else. It carries no
+address and no balance. Each figure is shown with its source and its age, so it
+reads as a rate somebody published and not as the wallet's own valuation.
+
+There is no change figure and no chart. Nothing the wallet does is derived from
+the rate. Amounts, fees and coin selection stay in koinu. A rate the app cannot
+read is not shown at all, rather than falling back to `0.00`.
+
+Stagenet shows no money figure and makes no request. tSOQ is a test coin with
+no market. A real number beside it would be read as real money.
 
 ## Networks
 

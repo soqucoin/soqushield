@@ -12,6 +12,7 @@ import 'package:soqushield/providers/auth_provider.dart';
 import 'package:soqushield/providers/session_provider.dart';
 import 'package:soqushield/providers/wallet_provider.dart';
 import 'package:soqushield/services/auth_service.dart';
+import 'package:soqushield/models/fiat_currency.dart';
 import 'package:soqushield/providers/display_prefs_provider.dart';
 
 /// The backing map of the mocked secure storage. Reset by [installSecureStorageMock].
@@ -188,6 +189,12 @@ class FixedDisplayPrefs extends Notifier<DisplayPrefs>
       state = state.copyWith(hideBalances: hide);
   @override
   Future<void> toggleHideBalances() => setHideBalances(!state.hideBalances);
+  @override
+  Future<void> setShowFiat(bool show) async =>
+      state = state.copyWith(showFiat: show);
+  @override
+  Future<void> setCurrency(FiatCurrency currency) async =>
+      state = state.copyWith(currency: currency);
   @override
   Future<void> setAllowScreenCapture(bool allow) async =>
       state = state.copyWith(allowScreenCapture: allow);

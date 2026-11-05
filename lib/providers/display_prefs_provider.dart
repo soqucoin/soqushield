@@ -17,6 +17,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../models/fiat_currency.dart';
 import '../services/screen_capture.dart';
 import '../services/secure_storage_service.dart' show kSharedSecureStorage;
 
@@ -24,6 +25,17 @@ import '../services/secure_storage_service.dart' show kSharedSecureStorage;
 class DisplayPrefs {
   /// Hide every figure that says how much the wallet holds.
   final bool hideBalances;
+
+  /// Whether to show what a balance is worth in money at all.
+  ///
+  /// ⛔ Defaults to FALSE. The wallet's own unit is SOQ; a money figure is an
+  /// extra the owner asks for, read from a rate the company cached. Off by
+  /// default also means a wallet that has never been into Settings makes no
+  /// price request at all.
+  final bool showFiat;
+
+  /// The currency money figures are shown in.
+  final FiatCurrency currency;
 
   /// Whether the OS may capture this app's screen.
   ///
@@ -38,17 +50,23 @@ class DisplayPrefs {
 
   const DisplayPrefs({
     this.hideBalances = false,
+    this.showFiat = false,
+    this.currency = FiatCurrency.usd,
     this.allowScreenCapture = false,
     this.loaded = false,
   });
 
   DisplayPrefs copyWith({
     bool? hideBalances,
+    bool? showFiat,
+    FiatCurrency? currency,
     bool? allowScreenCapture,
     bool? loaded,
   }) =>
       DisplayPrefs(
         hideBalances: hideBalances ?? this.hideBalances,
+        showFiat: showFiat ?? this.showFiat,
+        currency: currency ?? this.currency,
         allowScreenCapture: allowScreenCapture ?? this.allowScreenCapture,
         loaded: loaded ?? this.loaded,
       );
@@ -56,6 +74,8 @@ class DisplayPrefs {
 
 class DisplayPrefsNotifier extends Notifier<DisplayPrefs> {
   static const _keyHideBalances = 'soq_hide_balances_v1';
+  static const _keyShowFiat = 'soq_show_fiat_v1';
+  static const _keyCurrency = 'soq_fiat_currency_v1';
   static const _keyAllowCapture = 'soq_allow_capture_v1';
 
   FlutterSecureStorage get _storage => kSharedSecureStorage;
@@ -74,6 +94,10 @@ class DisplayPrefsNotifier extends Notifier<DisplayPrefs> {
     try {
       final hide = await _storage.read(key: _keyHideBalances);
       if (!ref.mounted) return;
+      final fiat = await _storage.read(key: _keyShowFiat);
+      if (!ref.mounted) return;
+      final cur = await _storage.read(key: _keyCurrency);
+      if (!ref.mounted) return;
       final cap = await _storage.read(key: _keyAllowCapture);
       if (!ref.mounted) return;
 
@@ -83,6 +107,10 @@ class DisplayPrefsNotifier extends Notifier<DisplayPrefs> {
       allowed = cap == 'true';
       state = DisplayPrefs(
         hideBalances: hide == 'true',
+        // Anything but an explicit "true" leaves the money line off, so a
+        // failed read never switches it on behind the owner.
+        showFiat: fiat == 'true',
+        currency: FiatCurrency.fromCode(cur),
         allowScreenCapture: allowed,
         loaded: true,
       );
@@ -106,6 +134,19 @@ class DisplayPrefsNotifier extends Notifier<DisplayPrefs> {
   /// Flip the hidden state — the Home readout's tap gesture.
   Future<void> toggleHideBalances() => setHideBalances(!state.hideBalances);
 
+  /// Turn the money line on or off.
+  Future<void> setShowFiat(bool show) async {
+    state = state.copyWith(showFiat: show);
+    await _storage.write(key: _keyShowFiat, value: show.toString());
+  }
+
+  /// Choose the currency money figures are shown in.
+  Future<void> setCurrency(FiatCurrency currency) async {
+    if (currency == state.currency) return;
+    state = state.copyWith(currency: currency);
+    await _storage.write(key: _keyCurrency, value: currency.code);
+  }
+
   /// Allow or forbid OS screen capture.
   ///
   /// The platform is told first and the preference is only stored once that
@@ -125,3 +166,7 @@ final displayPrefsProvider =
 /// Whether balances are hidden right now — the one thing most widgets need.
 final hideBalancesProvider = Provider<bool>(
     (ref) => ref.watch(displayPrefsProvider.select((p) => p.hideBalances)));
+
+/// The currency money figures are shown in.
+final fiatCurrencyProvider = Provider<FiatCurrency>(
+    (ref) => ref.watch(displayPrefsProvider.select((p) => p.currency)));

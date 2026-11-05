@@ -19,6 +19,7 @@ import 'package:share_plus/share_plus.dart';
 import '../../theme/instrument.dart';
 import '../../theme/motion.dart';
 import '../../providers/auth_provider.dart';
+import '../../models/fiat_currency.dart';
 import '../../providers/display_prefs_provider.dart';
 import '../../providers/session_provider.dart';
 import '../../providers/wallet_provider.dart';
@@ -105,6 +106,16 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
                       (v) => ref
                           .read(displayPrefsProvider.notifier)
                           .setHideBalances(v)),
+                  _toggleTile(
+                      Icons.payments_outlined,
+                      'Show value in money',
+                      'Read from a rate Soqucoin caches. Off by default',
+                      prefs.showFiat,
+                      (v) => ref
+                          .read(displayPrefsProvider.notifier)
+                          .setShowFiat(v)),
+                  if (prefs.showFiat) _currencyTile(prefs),
+                  if (prefs.showFiat) _noteTile(_fiatNote),
                   _screenCaptureTile(prefs),
                   _noteTile(_captureNote),
 
@@ -617,6 +628,13 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
         ),
       );
 
+  /// What the money line is and is not. It is a rate somebody else published,
+  /// not the wallet's opinion, and it changes nothing the wallet does.
+  String get _fiatNote =>
+      'SoquShield asks Soqucoin for a cached rate. It never contacts a market '
+      'site, and the request carries no address and no balance. Amounts, fees '
+      'and coin selection are always in SOQ.';
+
   /// What the capture toggle actually does, per platform — the two are not
   /// the same protection and the copy must not pretend otherwise.
   String get _captureNote => Platform.isIOS
@@ -636,6 +654,38 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
         prefs.allowScreenCapture,
         (v) =>
             ref.read(displayPrefsProvider.notifier).setAllowScreenCapture(v),
+      );
+
+  Widget _currencyTile(DisplayPrefs prefs) => _rowFrame(
+        child: Row(
+          children: [
+            Icon(Icons.language_outlined, size: 18, color: Instrument.label),
+            const SizedBox(width: 14),
+            Expanded(child: _titleSub('Currency', 'Shown beside your balance')),
+            DropdownButton<FiatCurrency>(
+              value: prefs.currency,
+              dropdownColor: Instrument.void2,
+              underline: const SizedBox.shrink(),
+              isDense: true,
+              icon: const Icon(Icons.expand_more_rounded,
+                  size: 16, color: Instrument.faint),
+              style: const TextStyle(
+                  color: Instrument.label, fontSize: 12, fontFamily: kMono),
+              items: [
+                for (final c in FiatCurrency.values)
+                  DropdownMenuItem(
+                    value: c,
+                    child: Text('${c.display}  ${c.symbol.trim()}'),
+                  ),
+              ],
+              onChanged: (v) {
+                if (v != null) {
+                  ref.read(displayPrefsProvider.notifier).setCurrency(v);
+                }
+              },
+            ),
+          ],
+        ),
       );
 
   Widget _timeoutTile(SessionConfig session) => _rowFrame(
