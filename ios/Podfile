@@ -45,8 +45,13 @@ post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
     target.build_configurations.each do |config|
-      if config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'].to_f < 13.0
-        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
+      # Raise every pod to the project's own minimum. Must match
+      # `platform :ios` above and the Runner target: a pod that declares less
+      # (dilithium_soq used to say 13.0) is not merely warned about — Xcode 15
+      # and later refuse to build a simulator slice under 15.0, so one stale
+      # pod failed the entire build.
+      if config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'].to_f < 15.0
+        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
       end
     end
   end

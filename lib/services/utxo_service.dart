@@ -374,13 +374,41 @@ class UtxoService {
     }
   }
 
-  /// Select UTXOs for spending the given amount (in koinu).
-  /// Uses a simple largest-first selection with target overshoot.
+  /// Select UTXOs for spending the given amount (in koinu), against a FIXED
+  /// fee that does not depend on how many inputs are chosen.
+  ///
+  /// ⛔ Only correct when the fee really is fixed. A Dilithium input is ~3,750
+  /// bytes — about 375,000 koinu of fee at the relay floor — so for a real
+  /// send the fee is a FUNCTION of the input count and this overload will
+  /// under-collect. Use [selectUtxosForVariableFee] there.
   ///
   /// Returns null if insufficient funds.
   List<Utxo>? selectUtxos(int targetSat, int feeSat,
-      {AssetType assetType = AssetType.soq}) {
-    final needed = targetSat + feeSat;
+      {AssetType assetType = AssetType.soq}) =>
+      selectUtxosForVariableFee(targetSat, (_) => feeSat, assetType: assetType);
+
+  /// Select UTXOs for [targetSat] when the fee GROWS with the input count.
+  ///
+  /// [feeForInputs] is handed the number of inputs selected so far and returns
+  /// the fee, in koinu, a transaction with that many inputs would pay. The
+  /// scan re-tests the target after every coin, so selection stops at the
+  /// first input count that genuinely covers amount + its own fee.
+  ///
+  /// ⛔ WHY THIS EXISTS. The old selection took a fee computed for a GUESSED
+  /// two inputs, then the builder re-computed the real fee from the real input
+  /// count and never re-selected. Each extra Dilithium input adds ~375,000
+  /// koinu of fee, so any send needing three or more inputs could come up
+  /// short against its own fee and throw InsufficientFunds — while the wallet
+  /// plainly held the money. A wallet funded by many small payouts could not
+  /// spend at all: 1.0 SOQ across 100 coins of 0.01 refused a 0.2 SOQ send.
+  /// The fee has to be inside the selection loop, not applied after it.
+  ///
+  /// Returns null if the spendable set cannot cover amount + fee at any size.
+  List<Utxo>? selectUtxosForVariableFee(
+    int targetSat,
+    int Function(int inputCount) feeForInputs, {
+    AssetType assetType = AssetType.soq,
+  }) {
     final available = List<Utxo>.from(
       spendable.where((u) => u.assetType == assetType),
     )..sort((a, b) => b.valueSat.compareTo(a.valueSat)); // largest first
@@ -391,10 +419,15 @@ class UtxoService {
     for (final utxo in available) {
       selected.add(utxo);
       accumulated += utxo.valueSat;
-      if (accumulated >= needed) return selected;
+      // The fee this selection would actually pay, at this input count.
+      if (accumulated >= targetSat + feeForInputs(selected.length)) {
+        return selected;
+      }
     }
 
-    // Insufficient funds
+    // Every spendable coin taken and still short of amount + fee. A coin worth
+    // less than the fee its own input adds makes the gap WIDEN as coins are
+    // added, so there is no larger selection that would have worked.
     return null;
   }
 

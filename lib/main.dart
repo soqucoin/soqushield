@@ -7,6 +7,7 @@ import 'theme/app_theme.dart';
 import 'theme/colors.dart';
 import 'router.dart';
 import 'providers/auth_provider.dart';
+import 'providers/display_prefs_provider.dart';
 import 'providers/launch_state_provider.dart';
 import 'providers/session_provider.dart';
 
@@ -164,6 +165,10 @@ class _SoquShieldAppState extends ConsumerState<SoquShieldApp>
   Widget build(BuildContext context) {
     // Initialize session provider
     ref.watch(sessionProvider);
+    // The display preferences load at launch, not when Settings first opens:
+    // the stored capture choice has to reach the platform from the first
+    // screen on.
+    ref.watch(displayPrefsProvider);
 
     return MaterialApp.router(
       title: 'SoquShield',
