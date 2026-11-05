@@ -208,11 +208,13 @@ class WalletNotifier extends Notifier<WalletState> {
     _utxoService = UtxoService(_rpcService);
     _txBuilder = TxBuilder(_rpcService, _utxoService);
 
-    // Both polls stop with the provider. SessionNotifier already does this
-    // for its inactivity timer; this one kept a periodic timer running past
-    // the container that owned it, which in the app is harmless only
-    // because the container lives as long as the app does.
-    ref.onDispose(_stopAutoRefresh);
+    // A disposed notifier must not keep polling: the next tick would read
+    // `state` on it and throw. Retire the refresh in flight too, as a wipe
+    // does, so a late reply writes nothing.
+    ref.onDispose(() {
+      _stopAutoRefresh();
+      _refreshGeneration++;
+    });
 
     // Check for existing wallet on startup
     Future.microtask(() => _loadExistingWallet());
@@ -905,7 +907,14 @@ class WalletNotifier extends Notifier<WalletState> {
   /// without user interaction.
   void _startAutoRefresh() {
     _refreshTimer?.cancel();
-    _refreshTimer = Timer.periodic(_refreshInterval, (_) {
+    // A load that finishes after dispose must not arm a timer onDispose
+    // has already run past.
+    if (!ref.mounted) return;
+    _refreshTimer = Timer.periodic(_refreshInterval, (timer) {
+      if (!ref.mounted) {
+        timer.cancel();
+        return;
+      }
       if (state.isInitialized && state.hasWallet) {
         _refreshBalance();
       }
@@ -927,9 +936,14 @@ class WalletNotifier extends Notifier<WalletState> {
   /// on-chain confirmation and clear the "pending" indicator.
   void _startFastRefresh() {
     _fastRefreshTimer?.cancel();
+    if (!ref.mounted) return;
     var ticks = 0;
     const maxTicks = 12; // 12 × 5s = 60s
     _fastRefreshTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      if (!ref.mounted) {
+        timer.cancel();
+        return;
+      }
       ticks++;
       if (!state.hasPendingTx || ticks >= maxTicks) {
         debugPrint('FAST-REFRESH: Stopped (pending=${state.hasPendingTx}, ticks=$ticks)');
