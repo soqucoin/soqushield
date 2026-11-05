@@ -564,6 +564,54 @@ void main() {
       await _tearDownTree(tester);
     });
 
+    testWidgets('an amount that fits the fee exactly passes the gate',
+        (tester) async {
+      // 0.1 + 0.005 is 0.10500000000000001 in binary floating point. The gate
+      // compares whole koinu, so an amount that exactly fits is not refused.
+      final auth = FakeAuthService();
+      await tester.pumpWidget(_scoped(
+        _wallet(SoqNetwork.mainnet, _mainnetAddress)
+            .copyWith(balance: 0.105, blockHeight: 100),
+        const MaterialApp(home: SendPilotScreen()),
+        auth: auth,
+      ));
+      await tester.pump();
+      await tester.enterText(find.byType(TextField).at(0), '0.1');
+      await tester.enterText(find.byType(TextField).at(1), _mainnetAddress);
+      await tester.pump();
+      await tester.tap(find.text('SEND SOQ'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(find.textContaining('plus the network fee'), findsNothing);
+      expect(find.text('EXCEEDS BALANCE'), findsNothing);
+      await _tearDownTree(tester);
+    });
+
+    testWidgets('the most-you-can-send figure is never rounded up',
+        (tester) async {
+      // 5.00006 - 0.005 = 4.99506. Four decimals would round that up to
+      // 4.9951, which this same gate refuses. The figure is exact to the koinu.
+      final auth = FakeAuthService();
+      await tester.pumpWidget(_scoped(
+        _wallet(SoqNetwork.mainnet, _mainnetAddress)
+            .copyWith(balance: 5.00006, blockHeight: 100),
+        const MaterialApp(home: SendPilotScreen()),
+        auth: auth,
+      ));
+      await tester.pump();
+      await tester.enterText(find.byType(TextField).at(0), '5.00006');
+      await tester.enterText(find.byType(TextField).at(1), _mainnetAddress);
+      await tester.pump();
+      await tester.tap(find.text('SEND SOQ'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(find.textContaining('most you can send is 4.99506 SOQ'),
+          findsOneWidget);
+      expect(exceedsBalance(4.99506, 0.005, 5.00006), isFalse,
+          reason: 'following the message does not produce another refusal');
+      await _tearDownTree(tester);
+    });
+
     testWidgets('an amount that leaves room for the fee still passes the gate',
         (tester) async {
       // The guard must not refuse an ordinary send: 1 SOQ out of 5 is fine.
