@@ -96,11 +96,17 @@ class FakeAuthService extends AuthService {
   Future<bool> isBiometricEnabled() async => false;
   @override
   Future<void> setBiometricEnabled(bool enabled) async {}
+  /// The screens ask through [authenticate], which reports HOW the attempt
+  /// ended, so that is what a fake must answer.
   @override
-  Future<bool> authenticateWithBiometrics() async {
+  Future<AuthOutcome> authenticate() async {
     prompts++;
-    return true;
+    return AuthOutcome.success;
   }
+
+  @override
+  Future<bool> authenticateWithBiometrics() async =>
+      (await authenticate()) == AuthOutcome.success;
   @override
   Future<void> clearAccount() async {}
 }

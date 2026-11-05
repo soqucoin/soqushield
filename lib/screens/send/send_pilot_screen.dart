@@ -33,6 +33,27 @@ class SendPilotScreen extends ConsumerStatefulWidget {
   ConsumerState<SendPilotScreen> createState() => _SendPilotScreenState();
 }
 
+/// A SOQ figure in koinu, rounded to the nearest koinu as the transaction
+/// builder rounds the amount it is handed.
+int toKoinu(double soq) => (soq * 100000000).round();
+
+/// Whether [amount] plus [fee] is more than [balance], compared in whole koinu
+/// so a binary fraction (0.1 + 0.005 = 0.10500000000000001) never refuses an
+/// amount that fits exactly.
+bool exceedsBalance(double amount, double fee, double balance) =>
+    toKoinu(amount) + toKoinu(fee) > toKoinu(balance);
+
+/// [koinu] as SOQ, exact to the koinu, with trailing zeros past the fourth
+/// decimal dropped. Nothing is rounded up, so the figure always fits.
+String formatKoinu(int koinu) {
+  final whole = koinu ~/ 100000000;
+  var frac = (koinu % 100000000).toString().padLeft(8, '0');
+  while (frac.length > 4 && frac.endsWith('0')) {
+    frac = frac.substring(0, frac.length - 1);
+  }
+  return '$whole.$frac';
+}
+
 class _SendPilotScreenState extends ConsumerState<SendPilotScreen>
     with TickerProviderStateMixin, InstrumentFigureMixin {
   final _amountCtrl = TextEditingController();
@@ -147,9 +168,25 @@ class _SendPilotScreenState extends ConsumerState<SendPilotScreen>
       _showError(addrError);
       return;
     }
-    if (wallet.balance <= 0 || amount > wallet.balance) {
+    // The fee comes out of the SAME balance, so "send everything" has to be
+    // checked against amount + fee. Checking the amount alone let a send-max
+    // through the gate, past the device credential, and into a builder
+    // refusal — the worst place to learn you were a fee short. The figure
+    // drawn in the anatomy above already used amount + fee; this is the same
+    // rule, applied where it decides.
+    if (wallet.balance <= 0) {
       setState(() => _inFlight = false);
       _showError('Insufficient SOQ balance');
+      return;
+    }
+    if (exceedsBalance(amount, _estimatedFee, wallet.balance)) {
+      setState(() => _inFlight = false);
+      final most = toKoinu(wallet.balance) - toKoinu(_estimatedFee);
+      _showError(most > 0
+          ? 'Not enough for the amount plus the network fee. '
+              'The most you can send is ${formatKoinu(most)} '
+              '${wallet.network.ticker}.'
+          : 'Not enough to cover the network fee.');
       return;
     }
     // No chain tip yet (the network has not answered since boot): a cached
@@ -281,7 +318,7 @@ class _SendPilotScreenState extends ConsumerState<SendPilotScreen>
     // ── the transaction, live, for the anatomy figure ──
     final amount = double.tryParse(_amountCtrl.text) ?? 0;
     final fee = _estimatedFee;
-    final overspend = amount > 0 && amount + fee > balance;
+    final overspend = amount > 0 && exceedsBalance(amount, fee, balance);
     final change = (balance - amount - fee).clamp(0.0, double.infinity);
     // Hidden balances stay hidden here too: the spendable rail is the
     // holdings, and the change rail is the holdings less this send. The
