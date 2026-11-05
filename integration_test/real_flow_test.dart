@@ -36,6 +36,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
 import 'package:soqushield/main.dart' show SoquShieldApp;
+import 'package:soqushield/providers/launch_state_provider.dart'
+    show mainnetSeenLiveProvider;
 import 'package:soqushield/screens/receive/receive_pilot_screen.dart';
 
 const _mnemonic =
@@ -251,13 +253,21 @@ void main() {
     await tapText(t, 'Network');
     await until(t, find.text('CHAIN · STAGENET'));
     await until(t, find.text('SOQUCOIN · ML-DSA-44 · LIVE'), limit: const Duration(seconds: 60));
-    // ⛔ NO POOL CARD HERE. showPool is `live && (mainnet || !seenLive)`, so
-    // once this install has seen Mainnet answer the pool is shown on Mainnet
-    // alone — it reports on the chain it mines, and its figures beside a
-    // Stagenet height would read as Stagenet's. The drive looked for it here
-    // because it was written while `seenLive` was false for everyone.
-    expect(find.text('SOQUPOOL'), findsNothing,
-        reason: 'the pool reports on Mainnet, not on the chain being viewed');
+    // ⛔ NO POOL CARD HERE once Mainnet has answered. showPool is
+    // `live && (mainnet || !seenLive)`, so once this install has seen Mainnet
+    // answer the pool is shown on Mainnet alone — it reports on the chain it
+    // mines, and its figures beside a Stagenet height would read as
+    // Stagenet's. A fresh install that has never reached Mainnet still shows
+    // it here, by design, so the drive reads the same flag the screen reads.
+    final seenLive = ProviderScope.containerOf(
+            t.element(find.byType(SoquShieldApp)))
+        .read(mainnetSeenLiveProvider);
+    if (seenLive) {
+      expect(find.text('SOQUPOOL'), findsNothing,
+          reason: 'the pool reports on Mainnet, not on the chain being viewed');
+    } else {
+      await until(t, find.text('SOQUPOOL'), limit: const Duration(seconds: 60));
+    }
     await mark(t, 'network-stagenet');
     await tapText(t, 'Wallet');
     await until(t, find.text('SEND'));
