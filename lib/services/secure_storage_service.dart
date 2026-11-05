@@ -183,7 +183,7 @@ class SecureStorageService {
   /// which has that accessibility.
   Future<void> wipeWallet() async {
     await _storage.deleteAll();
-    for (final key in [...legacyDefaultKeys, ...sessionKeys]) {
+    for (final key in [...legacyDefaultKeys, ...sessionKeys, ...displayKeys]) {
       await kSharedSecureStorage.delete(key: key);
     }
   }
@@ -198,6 +198,17 @@ class SecureStorageService {
     'soq_lock_on_bg_v1',
     'soq_failed_attempts_v1',
     'soq_locked_until_v1',
+  ];
+
+  /// The display preferences the display-prefs notifier keeps through the
+  /// shared instance. A wipe removes them, so the next wallet on the device
+  /// starts protected; the notifier's own list is pinned to this one by a
+  /// test.
+  static const displayKeys = [
+    'soq_hide_balances_v1',
+    'soq_show_fiat_v1',
+    'soq_fiat_currency_v1',
+    'soq_allow_capture_v1',
   ];
 
   /// Keys the 2.1 build wrote through a default storage instance: the social

@@ -5,6 +5,8 @@
 // hand someone the phone. It is a stored preference now, and the eye beside
 // the label is the affordance that makes it findable.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -17,6 +19,8 @@ import 'package:soqushield/providers/session_provider.dart';
 import 'package:soqushield/providers/wallet_provider.dart';
 import 'package:soqushield/providers/weather_provider.dart';
 import 'package:soqushield/screens/home/home_pilot_screen.dart';
+import 'package:soqushield/screens/send/send_pilot_screen.dart';
+import 'package:soqushield/theme/figures.dart';
 import 'package:soqushield/services/weather_service.dart';
 import 'package:soqushield/theme/instrument.dart';
 
@@ -143,6 +147,73 @@ void main() {
       expect(c.read(hideBalancesProvider), isTrue);
       await notifier.toggleHideBalances();
       expect(c.read(hideBalancesProvider), isFalse);
+    });
+    test('masked while the stored value is still loading', () async {
+      // After a restart with hiding on, the first frames come before the
+      // read: they must not show the holdings.
+      secureStore['soq_hide_balances_v1'] = 'true';
+      final hold = Completer<void>();
+      secureStorageReadHolds['soq_hide_balances_v1'] = hold;
+      final c = ProviderContainer();
+      addTearDown(c.dispose);
+      c.listen(displayPrefsProvider, (_, _) {}, fireImmediately: true);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(c.read(displayPrefsProvider).loaded, isFalse);
+      expect(c.read(hideBalancesProvider), isTrue,
+          reason: 'an unread preference is treated as hidden');
+
+      hold.complete();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(c.read(hideBalancesProvider), isTrue);
+    });
+
+    test('a choice made while the capture read is pending is not '
+        'overwritten by the load', () async {
+      // The hide read has answered, the capture read has not; the owner
+      // hides balances in that gap.
+      final hold = Completer<void>();
+      secureStorageReadHolds['soq_allow_capture_v1'] = hold;
+      final c = ProviderContainer();
+      addTearDown(c.dispose);
+      c.listen(displayPrefsProvider, (_, _) {}, fireImmediately: true);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      final set = c.read(displayPrefsProvider.notifier).setHideBalances(true);
+      hold.complete();
+      await set;
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(c.read(displayPrefsProvider).hideBalances, isTrue,
+          reason: 'the late read must not put the old value back');
+      expect(secureStore['soq_hide_balances_v1'], 'true');
+    });
+
+    testWidgets('Send hides the spendable balance and the change it implies',
+        (t) async {
+      final c = container(const DisplayPrefs(hideBalances: true, loaded: true));
+      await t.pumpWidget(UncontrolledProviderScope(
+        container: c,
+        child: const MaterialApp(home: SendPilotScreen()),
+      ));
+      await t.pump();
+      await t.enterText(find.byType(TextField).at(0), '1');
+      await t.pump();
+
+      final painter = t
+          .widgetList<CustomPaint>(find.byType(CustomPaint))
+          .map((p) => p.painter)
+          .whereType<TxAnatomyPainter>()
+          .single;
+      expect(painter.balanceValue, isNot(contains('10000')),
+          reason: 'the spendable rail is the holdings');
+      expect(painter.changeValue, isNot(contains('9998')),
+          reason: 'the change rail is the holdings less the send');
+      expect(painter.toValue, '1.00',
+          reason: 'the amount being entered stays the owner\'s to read');
+
+      await t.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+      await t.pump(const Duration(minutes: 1));
     });
   });
 }

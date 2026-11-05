@@ -340,9 +340,9 @@ void main() {
         'lib/screens/auth/seed_restore_screen.dart',
       ]) {
         final src = _read(screen);
-        expect(src, contains('ScreenCapture.setAllowed(false)'),
+        expect(src, contains('ScreenCapture.shield()'),
             reason: '$screen must protect itself while visible');
-        expect(src, contains('ScreenCapture.setAllowed(true)'),
+        expect(src, contains('_shield.release()'),
             reason: '$screen must hand the setting back when it leaves');
       }
     });

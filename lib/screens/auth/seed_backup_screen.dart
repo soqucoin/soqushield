@@ -43,15 +43,14 @@ class _SeedBackupScreenState extends ConsumerState<SeedBackupScreen> {
   @override
   void initState() {
     super.initState();
-    _protectWhileVisible();
     _loadSeedPhrase();
   }
 
   @override
   void dispose() {
-    // Restore the owner's choice. Not awaited — dispose cannot be async, and
-    // the channel call is fire-and-forget by nature.
-    if (_captureWasAllowed) ScreenCapture.setAllowed(true);
+    // Hand the owner's choice back. Not awaited — dispose cannot be async;
+    // ScreenCapture orders the platform calls itself.
+    _shield.release();
     super.dispose();
   }
 
@@ -62,14 +61,10 @@ class _SeedBackupScreenState extends ConsumerState<SeedBackupScreen> {
   /// the wallet. A phrase screenshotted once lives in the camera roll, and
   /// from there in whatever cloud backs the camera roll up, for good. So this
   /// screen re-asserts protection while it is visible and hands the owner's
-  /// setting back when it leaves.
-  Future<void> _protectWhileVisible() async {
-    _captureWasAllowed = ScreenCapture.allowed;
-    if (_captureWasAllowed) await ScreenCapture.setAllowed(false);
-  }
-
-  bool _captureWasAllowed = false;
-
+  /// setting back when it leaves. The shield is taken as the state is
+  /// created, so a preference that loads or changes while the phrase is on
+  /// screen is held until it leaves.
+  final CaptureShield _shield = ScreenCapture.shield();
 
   /// Load seed phrase from state or re-read from secure storage.
   Future<void> _loadSeedPhrase() async {

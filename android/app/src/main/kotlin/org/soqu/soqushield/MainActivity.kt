@@ -31,10 +31,14 @@ class MainActivity : FlutterFragmentActivity() {
                 when (call.method) {
                     // The owner's Settings choice. Applied at launch and on
                     // every change; the seed screens override it while they
-                    // are visible (ScreenCapture.whileProtected).
+                    // are visible (a CaptureShield in ScreenCapture).
                     "setAllowed" -> {
                         val allow = call.argument<Boolean>("allow") ?: false
-                        runOnUiThread { setSecure(!allow) }
+                        // The drive's lift outlasts the app's own calls, so
+                        // the preference load at launch does not put the
+                        // flag back mid-drive. Only a debuggable build ever
+                        // sets driveLifted.
+                        runOnUiThread { setSecure(!(allow || driveLifted)) }
                         result.success(true)
                     }
 
@@ -46,7 +50,10 @@ class MainActivity : FlutterFragmentActivity() {
                     "allowCapture" -> {
                         val debuggable =
                             (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
-                        if (debuggable) runOnUiThread { setSecure(false) }
+                        if (debuggable) {
+                            driveLifted = true
+                            runOnUiThread { setSecure(false) }
+                        }
                         result.success(debuggable)
                     }
 
@@ -54,6 +61,9 @@ class MainActivity : FlutterFragmentActivity() {
                 }
             }
     }
+
+    // Set only by allowCapture on a debuggable build, for the store drive.
+    private var driveLifted = false
 
     private fun setSecure(secure: Boolean) {
         if (secure) {

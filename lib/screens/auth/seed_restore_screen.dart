@@ -43,18 +43,14 @@ class _SeedRestoreScreenState extends ConsumerState<SeedRestoreScreen> {
   /// the wallet. A phrase screenshotted once lives in the camera roll, and
   /// from there in whatever cloud backs the camera roll up, for good. So this
   /// screen re-asserts protection while it is visible and hands the owner's
-  /// setting back when it leaves.
-  Future<void> _protectWhileVisible() async {
-    _captureWasAllowed = ScreenCapture.allowed;
-    if (_captureWasAllowed) await ScreenCapture.setAllowed(false);
-  }
-
-  bool _captureWasAllowed = false;
+  /// setting back when it leaves. The shield is taken as the state is
+  /// created, so a preference that loads or changes while the phrase is on
+  /// screen is held until it leaves.
+  final CaptureShield _shield = ScreenCapture.shield();
 
   @override
   void initState() {
     super.initState();
-    _protectWhileVisible();
     // The focused cell lights its hairline: repaint on every focus move.
     for (final f in _focusNodes) {
       f.addListener(_onFocusChange);
@@ -67,7 +63,7 @@ class _SeedRestoreScreenState extends ConsumerState<SeedRestoreScreen> {
 
   @override
   void dispose() {
-    if (_captureWasAllowed) ScreenCapture.setAllowed(true);
+    _shield.release();
     for (final c in _controllers) {
       c.dispose();
     }

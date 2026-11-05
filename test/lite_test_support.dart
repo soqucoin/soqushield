@@ -27,6 +27,10 @@ final List<String> secureStorageCalls = [];
 /// test can switch the network or wipe the wallet while a write is in flight.
 final Map<String, Completer<void>> secureStorageWriteHolds = {};
 
+/// A read of one of these keys waits on its completer before it answers, so
+/// a test can act while a stored preference is still loading.
+final Map<String, Completer<void>> secureStorageReadHolds = {};
+
 /// The next write to one of these keys is refused with a platform error (the
 /// key is removed from the set as it fires), so a test can fail a storage
 /// write once, mid-operation.
@@ -37,6 +41,7 @@ void installSecureStorageMock() {
   secureStore.clear();
   secureStorageCalls.clear();
   secureStorageWriteHolds.clear();
+  secureStorageReadHolds.clear();
   secureStorageWriteFailures.clear();
   TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .setMockMethodCallHandler(
@@ -46,6 +51,8 @@ void installSecureStorageMock() {
       secureStorageCalls.add('${call.method} ${args['key'] ?? ''}'.trim());
       switch (call.method) {
         case 'read':
+          final readHold = secureStorageReadHolds[args['key'] as String];
+          if (readHold != null) await readHold.future;
           return secureStore[args['key'] as String];
         case 'write':
           if (secureStorageWriteFailures.remove(args['key'] as String)) {
@@ -198,8 +205,14 @@ class FixedDisplayPrefs extends Notifier<DisplayPrefs>
   Future<void> setCurrency(FiatCurrency currency) async =>
       state = state.copyWith(currency: currency);
   @override
-  Future<void> setAllowScreenCapture(bool allow) async =>
-      state = state.copyWith(allowScreenCapture: allow);
+  Future<bool> setAllowScreenCapture(bool allow) async {
+    state = state.copyWith(allowScreenCapture: allow);
+    return true;
+  }
+
+  @override
+  Future<void> resetToDefaults() async =>
+      state = const DisplayPrefs(loaded: true);
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
 }

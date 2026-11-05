@@ -44,6 +44,8 @@ WalletState _wallet(SoqNetwork network, {TxType type = TxType.received}) =>
 
 Widget _app(WalletState wallet) => ProviderScope(
       overrides: [
+        // Shown balances, read from no storage: this file is about the sheet.
+        quietDisplayPrefs,
         walletProvider.overrideWith(() => MockWalletNotifier(wallet)),
       ],
       child: MaterialApp(
