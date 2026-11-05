@@ -17,8 +17,10 @@ import 'package:go_router/go_router.dart';
 
 import '../../theme/instrument.dart';
 import '../../theme/figures.dart';
+import '../../theme/fmt.dart';
 import '../../models/wallet_keys.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/display_prefs_provider.dart';
 import '../../providers/launch_state_provider.dart';
 import '../../providers/wallet_provider.dart';
 import '../../providers/session_provider.dart';
@@ -281,6 +283,10 @@ class _SendPilotScreenState extends ConsumerState<SendPilotScreen>
     final fee = _estimatedFee;
     final overspend = amount > 0 && amount + fee > balance;
     final change = (balance - amount - fee).clamp(0.0, double.infinity);
+    // Hidden balances stay hidden here too: the spendable rail is the
+    // holdings, and the change rail is the holdings less this send. The
+    // amount being entered and the fee are the owner's own figures.
+    final masked = ref.watch(hideBalancesProvider);
 
     // Until this install has seen Mainnet answer, the chain reads no height
     // and the balance is 0: say so in place rather than leave a silent
@@ -313,13 +319,14 @@ class _SendPilotScreenState extends ConsumerState<SendPilotScreen>
                     pulse: pulseValue,
                     dir: figureDir,
                     accent: Instrument.signal,
-                    balanceValue: balance.toStringAsFixed(2),
+                    balanceValue:
+                        masked ? maskedAmount : balance.toStringAsFixed(2),
                     balanceSub: '$ticker · SPENDABLE',
                     toValue:
                         amount > 0 ? amount.toStringAsFixed(2) : '—',
                     toSub: overspend ? 'EXCEEDS BALANCE' : 'RECIPIENT',
                     changeValue: amount > 0 && !overspend
-                        ? change.toStringAsFixed(2)
+                        ? (masked ? maskedAmount : change.toStringAsFixed(2))
                         : '—',
                     feeValue:
                         _feeLoading ? '…' : '~${fee.toStringAsFixed(4)}',
