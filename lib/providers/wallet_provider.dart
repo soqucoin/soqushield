@@ -14,6 +14,7 @@ import '../services/utxo_service.dart';
 import '../services/tx_builder.dart';
 import '../services/tx_parser.dart';
 import '../services/tx_history_service.dart';
+import 'auth_provider.dart';
 
 // ═══════════════════════════════════════════
 //  Wallet Transaction Model (for Activity UI)
@@ -496,6 +497,107 @@ class WalletNotifier extends Notifier<WalletState> {
 
   /// Every wallet on this device, for a list the owner can read.
   Future<List<WalletRecord>> listWallets() => _storageService.listWallets();
+
+  /// The wallet that is open right now.
+  String get openWalletId => _storageService.walletId;
+
+  /// Open another wallet on this device.
+  ///
+  /// ⛔ THE DEVICE CREDENTIAL IS REQUIRED, and it is asked for BEFORE
+  /// anything moves. Opening a wallet puts another person's balance, their
+  /// address and their whole payment history on the screen of an unlocked
+  /// phone, and it puts that wallet's coins one tap from being spent. A
+  /// credential that is refused leaves every service pointed exactly where
+  /// it was.
+  ///
+  /// The order below is the whole of the safety here:
+  ///
+  ///  1. the credential, before any state is touched;
+  ///  2. the polls stop and the refresh generation advances, so nothing
+  ///     fetched for the wallet being closed can write under the one being
+  ///     opened;
+  ///  3. ⛔ THE CACHED KEYPAIR IS ZEROED. `_cachedSk` is the ML-DSA-44
+  ///     SECRET KEY of the wallet being closed. Leaving it in place would
+  ///     let the next send sign the newly opened wallet's transaction with
+  ///     the previous wallet's key — the one failure here that moves coins;
+  ///  4. the pointer is written, then every service follows it;
+  ///  5. the new wallet's own network, keys, coins and history are read.
+  ///
+  /// Returns true when the wallet was opened.
+  Future<bool> openWallet(String id) async {
+    if (id == _storageService.walletId) return true;
+
+    final wallets = await _storageService.listWallets();
+    if (!wallets.any((w) => w.id == id)) {
+      state = state.copyWith(error: 'That wallet is not on this device');
+      return false;
+    }
+
+    // 1. The credential. Nothing has moved yet, so a refusal costs nothing.
+    final auth = ref.read(authServiceProvider);
+    if (!await auth.isDeviceAuthAvailable()) {
+      state = state.copyWith(
+          error: 'Set a screen lock on this device to switch wallets');
+      return false;
+    }
+    if (!await auth.authenticateWithBiometrics()) {
+      debugPrint('WALLETS: switch refused at the credential');
+      return false;
+    }
+
+    state = state.copyWith(isLoading: true, clearError: true);
+    try {
+      // 2. Nothing in flight for the old wallet may land under the new one.
+      _stopAutoRefresh();
+      _refreshGeneration++;
+      _parsedTxCache.clear();
+
+      // 3. The old wallet's signing key leaves memory.
+      clearKeyCache();
+
+      // 4. The pointer, then every service behind it.
+      await _storageService.setActiveWallet(id);
+      _applyWallet(id);
+
+      // 5. This wallet's own network before anything is read or fetched.
+      final network = await _storageService.readNetwork();
+      _applyNetwork(network);
+      _utxoService.setNetworkSync(network);
+
+      final mnemonic = await _storageService.readMnemonic();
+      if (mnemonic == null) throw Exception('That wallet has no seed stored');
+      final accountIndex = await _storageService.readAccountIndex();
+      final backupConfirmed = await _storageService.isBackupConfirmed();
+      final keys = await _keyService.deriveFromMnemonic(
+        SeedPhrase(words: mnemonic.split(' '), backupConfirmed: backupConfirmed),
+        network: network,
+        accountIndex: accountIndex,
+      );
+
+      await _utxoService.load();
+
+      state = WalletState(
+        keys: keys,
+        network: network,
+        backupConfirmed: backupConfirmed,
+        isInitialized: true,
+        isLoading: false,
+        balance: _utxoService.soqBalance,
+        recentTransactions: await TxHistoryService.load(),
+      );
+
+      _refreshBalance();
+      _startAutoRefresh();
+      debugPrint('WALLETS: opened $id on ${network.name}');
+      return true;
+    } catch (e) {
+      debugPrint('WALLETS: open failed: $e');
+      state = state.copyWith(
+          isLoading: false, error: 'Could not open that wallet: $e');
+      _startAutoRefresh();
+      return false;
+    }
+  }
 
   /// Rename a wallet on this device.
   ///
@@ -1101,6 +1203,23 @@ class WalletNotifier extends Notifier<WalletState> {
   /// SECURITY: Zero and clear the session-scoped keypair cache.
   /// Called on wipe, lock, and app background to ensure secret key
   /// material doesn't persist in Dart heap when the wallet isn't active.
+  /// Whether a signing keypair is held in memory right now.
+  ///
+  /// Exists so a test can pin the one failure here that moves coins: a
+  /// switch that leaves the closed wallet's ML-DSA-44 secret key in place
+  /// would let the next send sign the newly opened wallet's transaction
+  /// with the previous wallet's key. The cache is otherwise only filled by
+  /// a real send, which a unit test cannot reach.
+  @visibleForTesting
+  bool get hasCachedKeypair => _cachedSk != null;
+
+  /// Put a keypair in the cache, as a send would. Tests only.
+  @visibleForTesting
+  void cacheKeypairForTest(Uint8List publicKey, Uint8List secretKey) {
+    _cachedPk = publicKey;
+    _cachedSk = secretKey;
+  }
+
   void clearKeyCache() {
     if (_cachedSk != null) {
       _cachedSk!.fillRange(0, _cachedSk!.length, 0);
