@@ -380,4 +380,23 @@ void main() {
         reason: 'the verification saves nothing after the wipe');
     expect(secureStore, isEmpty);
   });
+
+  test('9. a disposed wallet stops polling; no tick reads a disposed notifier',
+      () async {
+    // Unmounting the app's ProviderScope disposes the notifier, as the
+    // real-flow drive does before it reopens the wallet. A 30-second tick
+    // that outlived it would read `state` on a disposed notifier and throw.
+    storeWallet(SoqNetwork.mainnet, mainnetAddress);
+    await bootWith(client());
+    final notifier = container.read(walletProvider.notifier);
+    expect(container.read(walletProvider).hasWallet, isTrue);
+    expect(notifier.autoRefreshArmed, isTrue,
+        reason: 'an open wallet polls');
+    container.dispose();
+    expect(notifier.autoRefreshArmed, isFalse,
+        reason: 'disposing the notifier cancels its polling');
+    // A fresh container, booted, for the tear-down's wipe.
+    container = ProviderContainer();
+    await _boot(container);
+  });
 }
