@@ -576,7 +576,8 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
       for (final kept in ['SECURITY', 'PRIVACY & DISPLAY', 'BACKUP & KEYS',
           'NETWORK', 'ABOUT', 'DANGER ZONE', 'Recovery phrase',
-          'Encrypted backup', 'Wipe wallet', 'SOQ address']) {
+          'Encrypted backup', 'Hide balances', 'Wipe wallet',
+          'SOQ address']) {
         expect(find.text(kept), findsOneWidget, reason: '$kept must stay');
       }
       // 'PRIVACY' stays on this list: the dropped section had that exact

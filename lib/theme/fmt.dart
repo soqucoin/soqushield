@@ -20,3 +20,6 @@ const double kSatoshiExactLimit = 67108864;
 /// [kSatoshiExactLimit], and at 2dp, as [fmtAmount], at or above it.
 String fmtDetailAmount(num v) =>
     v.abs() < kSatoshiExactLimit ? _n8.format(v) : _n2.format(v);
+
+/// The masked stand-in for a hidden SOQ amount.
+const String maskedAmount = '••••';

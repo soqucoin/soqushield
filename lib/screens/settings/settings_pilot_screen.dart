@@ -97,6 +97,14 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
                   // section is about what the screen shows, not about
                   // confidential transactions.
                   _section('PRIVACY & DISPLAY'),
+                  _toggleTile(
+                      Icons.visibility_off_outlined,
+                      'Hide balances',
+                      'Replace every amount with dots',
+                      prefs.hideBalances,
+                      (v) => ref
+                          .read(displayPrefsProvider.notifier)
+                          .setHideBalances(v)),
                   _screenCaptureTile(prefs),
                   _noteTile(_captureNote),
 

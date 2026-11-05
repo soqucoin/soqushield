@@ -15,6 +15,8 @@ import 'package:go_router/go_router.dart';
 import '../../theme/instrument.dart';
 import '../../providers/wallet_provider.dart';
 import 'activity_detail_sheet.dart';
+import '../../providers/display_prefs_provider.dart';
+import '../../theme/fmt.dart';
 
 class ActivityPilotScreen extends ConsumerStatefulWidget {
   const ActivityPilotScreen({super.key});
@@ -220,6 +222,7 @@ class _ActivityPilotScreenState extends ConsumerState<ActivityPilotScreen> {
       );
 
   Widget _row(_Entry e) {
+    final masked = ref.watch(hideBalancesProvider);
     final inbound = e.inbound;
 
     // A row opens its transaction's detail sheet, where the hash is copied.
@@ -265,7 +268,7 @@ class _ActivityPilotScreenState extends ConsumerState<ActivityPilotScreen> {
                 alignment: Alignment.centerRight,
                 child: FittedBox(
                   fit: BoxFit.scaleDown,
-                  child: Text(e.amountLabel,
+                  child: Text(masked ? e.maskedLabel : e.amountLabel,
                       style: TextStyle(
                           color: inbound ? Instrument.readout : Instrument.label,
                           fontSize: 13.5,
@@ -289,6 +292,14 @@ class _Entry {
   final String label;
   final bool inbound;
   final String amountLabel;
+
+  /// What the row shows when balances are hidden. The direction and the
+  /// ticker stay — "you sent something" is not the secret, the size is.
+  String get maskedLabel {
+    final sign = inbound ? '+' : '−';
+    return '$sign$maskedAmount ${amountLabel.split(' ').last}';
+  }
+
   final WalletTransaction tx;
   const _Entry({
     required this.timestamp,
