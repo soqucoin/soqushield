@@ -547,6 +547,28 @@ class WalletNotifier extends Notifier<WalletState> {
         network: state.network,
       );
 
+      // ⛔ Hold both polls and retire every refresh already in flight, BEFORE
+      // the clear. Cancelling a timer does not cancel a reply already
+      // awaited: a getUtxos answer fetched for the wallet being replaced
+      // would still pass its staleness check and write that wallet's coins
+      // straight back in after the clear. wipeWallet does this, and for the
+      // same reason.
+      _stopAutoRefresh();
+      _refreshGeneration++;
+
+      // ⛔ The coins, and the history, of the wallet being REPLACED.
+      // Both caches are keyed by network and not by wallet, so without this
+      // the restored wallet opens holding a balance it does not own: the
+      // cached set survives into the next boot, and it is what coin selection
+      // spends from. wipeWallet has always done this; a restore replaces one
+      // wallet with another just as completely.
+      //
+      // Every network, on both. The replaced wallet's rows on the network
+      // that is not open are still its rows, and switching the restored
+      // wallet over would read them into its Activity feed.
+      await _utxoService.clearAll();
+      await TxHistoryService.clearAllNetworks();
+
       // Store
       await _storageService.storeWallet(
         mnemonic: mnemonic,
@@ -580,6 +602,12 @@ class WalletNotifier extends Notifier<WalletState> {
         isLoading: false,
         error: 'Restore failed: $e',
       );
+      // The polls were stopped before the clear. Whichever wallet the device
+      // is left holding — the previous one when the failure came early, the
+      // restored one when it came after the store — must not be left with no
+      // refresh at all. _startAutoRefresh cancels first, so a failure that
+      // happened before the stop costs nothing here.
+      if (state.isInitialized) _startAutoRefresh();
     }
   }
 

@@ -62,6 +62,13 @@ const _allowedHosts = {
   'soqu.org',
 };
 
+/// Dotted names under lib/ that are platform channels, not hosts. A channel
+/// is named in reverse-domain form, so the host scan sees it as a dotted
+/// name; it never reaches the network.
+const _knownChannels = {
+  'org.soqu.soqushield',
+};
+
 /// The few files the app names by name in a string literal: the native
 /// library under its three forms, its build script, an asset. A `.dart`
 /// name is a file when it is a library URI or a relative import that
@@ -371,6 +378,7 @@ Widget _scoped(WalletState wallet, Widget child,
         authProvider.overrideWith(() => MockAuthNotifier(AuthStatus.authenticated)),
         authServiceProvider.overrideWithValue(auth ?? FakeAuthService()),
         sessionProvider.overrideWith(MockSessionNotifier.new),
+        quietDisplayPrefs,
         walletProvider.overrideWith(() => MockWalletNotifier(wallet)),
         ...extra,
       ],
@@ -536,6 +544,103 @@ void main() {
       await _tearDownTree(tester);
     });
 
+    testWidgets('a send-max is refused at the gate, before the credential',
+        (tester) async {
+      // The fee comes out of the same balance. Sending the whole balance
+      // cannot also pay the fee, and the gate used to check the amount alone:
+      // it passed, the device credential was taken, and the builder refused.
+      // That is the worst place to learn you were a fee short.
+      final auth = FakeAuthService();
+      await tester.pumpWidget(_scoped(
+        _wallet(SoqNetwork.mainnet, _mainnetAddress)
+            .copyWith(balance: 5, blockHeight: 100),
+        const MaterialApp(home: SendPilotScreen()),
+        auth: auth,
+      ));
+      await tester.pump();
+      await tester.enterText(find.byType(TextField).at(0), '5');
+      await tester.enterText(find.byType(TextField).at(1), _mainnetAddress);
+      await tester.pump();
+      await tester.tap(find.text('SEND SOQ'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(auth.prompts, 0,
+          reason: 'the refusal happens before the device credential');
+      expect(find.textContaining('plus the network fee'), findsOneWidget);
+      // And it says what WOULD go through, rather than only saying no.
+      expect(find.textContaining('4.9950'), findsOneWidget);
+      await _tearDownTree(tester);
+    });
+
+    testWidgets('an amount that fits the fee exactly passes the gate',
+        (tester) async {
+      // 0.1 + 0.005 is 0.10500000000000001 in binary floating point. The gate
+      // compares whole koinu, so an amount that exactly fits is not refused.
+      final auth = FakeAuthService();
+      await tester.pumpWidget(_scoped(
+        _wallet(SoqNetwork.mainnet, _mainnetAddress)
+            .copyWith(balance: 0.105, blockHeight: 100),
+        const MaterialApp(home: SendPilotScreen()),
+        auth: auth,
+      ));
+      await tester.pump();
+      await tester.enterText(find.byType(TextField).at(0), '0.1');
+      await tester.enterText(find.byType(TextField).at(1), _mainnetAddress);
+      await tester.pump();
+      await tester.tap(find.text('SEND SOQ'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(find.textContaining('plus the network fee'), findsNothing);
+      expect(find.text('EXCEEDS BALANCE'), findsNothing);
+      await _tearDownTree(tester);
+    });
+
+    testWidgets('the most-you-can-send figure is never rounded up',
+        (tester) async {
+      // 5.00006 - 0.005 = 4.99506. Four decimals would round that up to
+      // 4.9951, which this same gate refuses. The figure is exact to the koinu.
+      final auth = FakeAuthService();
+      await tester.pumpWidget(_scoped(
+        _wallet(SoqNetwork.mainnet, _mainnetAddress)
+            .copyWith(balance: 5.00006, blockHeight: 100),
+        const MaterialApp(home: SendPilotScreen()),
+        auth: auth,
+      ));
+      await tester.pump();
+      await tester.enterText(find.byType(TextField).at(0), '5.00006');
+      await tester.enterText(find.byType(TextField).at(1), _mainnetAddress);
+      await tester.pump();
+      await tester.tap(find.text('SEND SOQ'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(find.textContaining('most you can send is 4.99506 SOQ'),
+          findsOneWidget);
+      expect(exceedsBalance(4.99506, 0.005, 5.00006), isFalse,
+          reason: 'following the message does not produce another refusal');
+      await _tearDownTree(tester);
+    });
+
+    testWidgets('an amount that leaves room for the fee still passes the gate',
+        (tester) async {
+      // The guard must not refuse an ordinary send: 1 SOQ out of 5 is fine.
+      final auth = FakeAuthService();
+      await tester.pumpWidget(_scoped(
+        _wallet(SoqNetwork.mainnet, _mainnetAddress)
+            .copyWith(balance: 5, blockHeight: 100),
+        const MaterialApp(home: SendPilotScreen()),
+        auth: auth,
+      ));
+      await tester.pump();
+      await tester.enterText(find.byType(TextField).at(0), '1');
+      await tester.enterText(find.byType(TextField).at(1), _mainnetAddress);
+      await tester.pump();
+      await tester.tap(find.text('SEND SOQ'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(find.textContaining('plus the network fee'), findsNothing);
+      await _tearDownTree(tester);
+    });
+
     testWidgets('asks for the device credential once the chain has a height',
         (tester) async {
       final auth = FakeAuthService();
@@ -566,10 +671,14 @@ void main() {
       await tester.pumpWidget(_scoped(_wallet(SoqNetwork.stagenet, _stagenetAddress), const MaterialApp(home: SettingsPilotScreen())));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
-      for (final kept in ['SECURITY', 'BACKUP & KEYS', 'NETWORK', 'ABOUT', 'DANGER ZONE',
-          'Recovery phrase', 'Encrypted backup', 'Wipe wallet', 'SOQ address']) {
+      for (final kept in ['SECURITY', 'PRIVACY & DISPLAY', 'BACKUP & KEYS',
+          'NETWORK', 'ABOUT', 'DANGER ZONE', 'Recovery phrase',
+          'Encrypted backup', 'Wipe wallet', 'SOQ address']) {
         expect(find.text(kept), findsOneWidget, reason: '$kept must stay');
       }
+      // 'PRIVACY' stays on this list: the dropped section had that exact
+      // header. The capture control sits under 'PRIVACY & DISPLAY', which
+      // this exact-text check does not match.
       for (final gone in ['PRIVACY', 'PROTOCOL', 'Faucet', 'Privacy dashboard', 'Coin control',
           'View key', 'Solana address']) {
         expect(find.text(gone), findsNothing, reason: '$gone must be gone');
@@ -648,6 +757,13 @@ void main() {
         final src = _read(f.path);
         for (final (literal, name) in literalNames(src)) {
           if (_knownFile(f.path, literal, name)) continue;
+          // A channel name carries a path after it ('org.soqu.soqushield/
+          // capture') and never a scheme, which is how it is told from a host.
+          if (_knownChannels.contains(name) &&
+              !literal.contains('://') &&
+              literal.startsWith('$name/')) {
+            continue;
+          }
           expect(_allowedHosts, contains(name),
               reason: '${f.path} names $name, which is not on the allowlist');
         }
