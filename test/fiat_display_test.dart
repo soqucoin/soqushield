@@ -20,6 +20,7 @@ import 'package:soqushield/providers/price_provider.dart';
 import 'package:soqushield/providers/session_provider.dart';
 import 'package:soqushield/providers/wallet_provider.dart';
 import 'package:soqushield/providers/weather_provider.dart';
+import 'package:soqushield/screens/activity/activity_pilot_screen.dart';
 import 'package:soqushield/screens/home/home_pilot_screen.dart';
 import 'package:soqushield/screens/send/send_pilot_screen.dart';
 import 'package:soqushield/services/price_service.dart';
@@ -216,6 +217,24 @@ void main() {
       await _tearDownTree(t);
     });
 
+    testWidgets('the typed amount\'s figure says where the rate came from '
+        'and how old it is', (t) async {
+      // Send has no other provenance label on screen, so the line carries it.
+      await t.pumpWidget(_scoped(
+        _wallet(SoqNetwork.mainnet),
+        const MaterialApp(home: SendPilotScreen()),
+        price: _priced(age: const Duration(minutes: 4)),
+        showFiat: true,
+      ));
+      await t.pump();
+      await t.enterText(find.byType(TextField).at(0), '10000');
+      await t.pump();
+      expect(find.text(r'$1.60'), findsOneWidget);
+      expect(find.textContaining('CoinGecko'), findsOneWidget);
+      expect(find.textContaining('4 min ago'), findsOneWidget);
+      await _tearDownTree(t);
+    });
+
     testWidgets('stagenet prices nothing, however much is typed', (t) async {
       await t.pumpWidget(_scoped(
         _wallet(SoqNetwork.stagenet),
@@ -227,6 +246,32 @@ void main() {
       await t.enterText(find.byType(TextField).at(0), '10000');
       await t.pump();
       expect(find.text(r'$1.60'), findsNothing);
+      await _tearDownTree(t);
+    });
+  });
+
+  group('Activity', () {
+    testWidgets('the row figures come with the rate\'s source and age',
+        (t) async {
+      final wallet = _wallet(SoqNetwork.mainnet).copyWith(recentTransactions: [
+        WalletTransaction(
+          txid: 'a' * 64,
+          type: TxType.received,
+          amount: 10000,
+          timestamp: DateTime(2026, 10, 14, 23, 54),
+        ),
+      ]);
+      await t.pumpWidget(_scoped(
+        wallet,
+        const MaterialApp(home: ActivityPilotScreen()),
+        price: _priced(age: const Duration(minutes: 4)),
+        showFiat: true,
+      ));
+      await t.pump();
+      expect(find.text(r'$1.60'), findsOneWidget);
+      expect(find.textContaining('CoinGecko'), findsOneWidget,
+          reason: 'today\'s-rate caveat alone does not say whose rate');
+      expect(find.textContaining('4 min ago'), findsOneWidget);
       await _tearDownTree(t);
     });
   });
@@ -252,6 +297,13 @@ void main() {
       // For yen one minor unit is 1, so sub-1 is where yen widens.
       expect(fmtMoney(0.42, FiatCurrency.jpy), '¥0.42');
       expect(fmtMoney(1.4, FiatCurrency.jpy), '¥1');
+    });
+
+    test('a few koinu at a sub-cent rate is still not zero', () {
+      // 0.00001 SOQ at the listing rate: far below 1e-8 of a dollar.
+      expect(fmtMoney(0.00001 * _rate, FiatCurrency.usd), r'$0.0000000016');
+      // Past the fixed-point limit it goes scientific, still two digits.
+      expect(fmtMoney(1.6e-15, FiatCurrency.usd), r'$1.6e-15');
     });
 
     test('compact says the useful thing about a sub-unit COST', () {

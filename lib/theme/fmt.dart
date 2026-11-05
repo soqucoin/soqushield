@@ -63,10 +63,19 @@ String fmtMoney(num v, FiatCurrency currency, {bool compact = false}) {
   if (compact) return '<$sym${unit.toStringAsFixed(currency.minorDigits)}';
 
   // Two significant digits: for 0.0016 the first digit sits at 1e-3, so 4dp.
-  // Capped at 8dp — a koinu is 1e-8 SOQ, so nothing meaningful lives below it.
-  final dp = math.min(8, 1 - (math.log(a) / math.ln10).floor());
+  // No cap tied to the koinu: this is a FIAT amount, and a few koinu at a
+  // fraction-of-a-cent rate sit far below 1e-8 of a currency unit. Past
+  // [_maxFixedDp] places the fixed form stops being readable, so the figure
+  // goes to scientific notation, still two significant digits and still
+  // never zero.
+  final dp = 1 - (math.log(a) / math.ln10).floor();
+  if (dp > _maxFixedDp) return '$sign$sym${a.toStringAsExponential(1)}';
   return '$sign$sym${a.toStringAsFixed(dp)}';
 }
+
+/// The most decimal places a sub-unit money figure is written out in before
+/// it switches to scientific notation.
+const int _maxFixedDp = 12;
 
 /// [fmtMoney] in US dollars. Kept for the call sites that are dollars by
 /// definition; everything the owner sees goes through [fmtMoney] with their
