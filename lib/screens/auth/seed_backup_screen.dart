@@ -17,6 +17,7 @@ import 'package:go_router/go_router.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/session_provider.dart';
 import '../../providers/wallet_provider.dart';
+import '../../services/screen_capture.dart';
 import '../../theme/instrument.dart';
 import '../../widgets/seed_word_grid.dart';
 
@@ -43,6 +44,26 @@ class _SeedBackupScreenState extends ConsumerState<SeedBackupScreen> {
     super.initState();
     _loadSeedPhrase();
   }
+
+  @override
+  void dispose() {
+    // Hand the owner's choice back. Not awaited — dispose cannot be async;
+    // ScreenCapture orders the platform calls itself.
+    _shield.release();
+    super.dispose();
+  }
+
+  /// ⛔ The recovery phrase is NOT covered by the owner's screenshot setting.
+  ///
+  /// Someone turns screenshots on to share a balance or a receive code; that
+  /// decision must not silently extend to the one screen whose contents ARE
+  /// the wallet. A phrase screenshotted once lives in the camera roll, and
+  /// from there in whatever cloud backs the camera roll up, for good. So this
+  /// screen re-asserts protection while it is visible and hands the owner's
+  /// setting back when it leaves. The shield is taken as the state is
+  /// created, so a preference that loads or changes while the phrase is on
+  /// screen is held until it leaves.
+  final CaptureShield _shield = ScreenCapture.shield();
 
   /// Load seed phrase from state or re-read from secure storage.
   Future<void> _loadSeedPhrase() async {
