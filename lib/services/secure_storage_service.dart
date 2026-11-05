@@ -1,5 +1,9 @@
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../models/wallet_keys.dart';
+import '../models/wallet_record.dart';
 
 /// The storage every service other than [SecureStorageService] uses.
 ///
@@ -44,6 +48,23 @@ class SecureStorageService {
   static const _keyMainnetSwitch = 'soq_mainnet_switch_v1';
   static const _keyMainnetSwitchNoticeDismissed =
       'soq_mainnet_switch_notice_dismissed_v1';
+
+  /// The wallet list, and which of them is open.
+  static const _keyRegistry = 'soq_wallets_v1';
+  static const _keyActiveWallet = 'soq_active_wallet_v1';
+
+  /// Where a wallet's secrets live.
+  ///
+  /// ⛔ The PRIMARY wallet keeps the original un-namespaced keys. Adopting it
+  /// into the registry therefore moves no secret at all: a migration that
+  /// relocates a mnemonic can half-finish, and a half-finished one is a lost
+  /// wallet. Every wallet added after the registry exists gets its own
+  /// namespace and never collides with it.
+  static String _scoped(String id, String flatKey) =>
+      id == WalletRecord.primaryId ? flatKey : 'soq_w_${id}_$flatKey';
+
+  String mnemonicKeyFor(String id) => _scoped(id, _keyMnemonic);
+  String addressKeyFor(String id) => _scoped(id, _keyAddress);
 
   final FlutterSecureStorage _storage;
 
@@ -148,6 +169,98 @@ class SecureStorageService {
   Future<int> readAccountIndex() async {
     final idx = await _storage.read(key: _keyAccountIndex);
     return int.tryParse(idx ?? '0') ?? 0;
+  }
+
+  // ── The wallet registry ──
+
+  /// Every wallet on this device, in the order they were added.
+  ///
+  /// An unreadable registry yields an empty list rather than throwing: the
+  /// app must still open, and [adoptExistingWallet] will rebuild an entry for
+  /// the wallet whose secrets are actually present.
+  Future<List<WalletRecord>> listWallets() async {
+    try {
+      final raw = await _storage.read(key: _keyRegistry);
+      if (raw == null || raw.isEmpty) return [];
+      final decoded = json.decode(raw);
+      if (decoded is! List) return [];
+      return decoded
+          .map(WalletRecord.fromJson)
+          .whereType<WalletRecord>()
+          .toList();
+    } catch (e) {
+      debugPrint('SecureStorage: registry unreadable, treating as empty: $e');
+      return const [];
+    }
+  }
+
+  Future<void> _writeRegistry(List<WalletRecord> wallets) async {
+    await _storage.write(
+      key: _keyRegistry,
+      value: json.encode(wallets.map((w) => w.toJson()).toList()),
+    );
+  }
+
+  /// Add [record], or replace the entry that already carries its id.
+  Future<void> putWallet(WalletRecord record) async {
+    // A growable copy: listWallets may hand back a fixed-length list.
+    final wallets = List<WalletRecord>.of(await listWallets());
+    final i = wallets.indexWhere((w) => w.id == record.id);
+    if (i >= 0) {
+      wallets[i] = record;
+    } else {
+      wallets.add(record);
+    }
+    await _writeRegistry(wallets);
+  }
+
+  /// The wallet currently open, or null when there is none.
+  ///
+  /// A pointer at a wallet that is no longer in the registry reads as null
+  /// rather than as that id: the caller's next step is to open a wallet, and
+  /// opening one that has been removed would read secrets that are gone.
+  Future<String?> activeWalletId() async {
+    final id = await _storage.read(key: _keyActiveWallet);
+    if (id == null || id.isEmpty) return null;
+    final wallets = await listWallets();
+    return wallets.any((w) => w.id == id) ? id : null;
+  }
+
+  /// Open [id]. Refuses an id the registry does not carry.
+  Future<void> setActiveWallet(String id) async {
+    final wallets = await listWallets();
+    if (!wallets.any((w) => w.id == id)) {
+      throw ArgumentError.value(id, 'id', 'no such wallet in the registry');
+    }
+    await _storage.write(key: _keyActiveWallet, value: id);
+  }
+
+  /// Bring a pre-registry wallet into the registry, moving nothing.
+  ///
+  /// Call on boot. It is a no-op when the registry already has entries, or
+  /// when there is no wallet on the device at all. The adopted wallet keeps
+  /// the original keys, so an interrupted run leaves the wallet exactly as it
+  /// was and the next boot simply tries again.
+  Future<void> adoptExistingWallet({String name = 'Main wallet'}) async {
+    if ((await listWallets()).isNotEmpty) return;
+    if (!await hasWallet()) return;
+
+    final address = await readAddress();
+    if (address == null || address.isEmpty) return;
+
+    final created = DateTime.tryParse(
+            await _storage.read(key: _keyCreatedAt) ?? '') ??
+        DateTime.now();
+
+    await putWallet(WalletRecord(
+      id: WalletRecord.primaryId,
+      name: name,
+      address: address,
+      network: await readNetwork(),
+      createdAt: created,
+    ));
+    await _storage.write(
+        key: _keyActiveWallet, value: WalletRecord.primaryId);
   }
 
   // ── Backup Management ──
