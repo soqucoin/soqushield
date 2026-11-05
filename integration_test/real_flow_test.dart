@@ -183,15 +183,31 @@ void main() {
     // ── network on Mainnet: the cards closed with their lines, the pool
     // card waiting when offline; the emission card opened ──
     await tapText(t, 'Network');
-    await until(t, find.text('100,000 SOQ A BLOCK AT GENESIS'));
     await until(t, settled, limit: const Duration(seconds: 40));
     final offline = find.text('SOQUCOIN · ML-DSA-44 · OFFLINE').evaluate().isNotEmpty;
     if (offline) {
       await until(t, find.textContaining('Connecting to Mainnet'), limit: const Duration(seconds: 40));
       await until(t, find.text('WAITING FOR THE NETWORK'));
     }
+    // The pool card belongs to Mainnet now. It is the card that is
+    // asserted, not its status: `OPERATIONAL` is whatever the pool
+    // publishes at the moment the drive runs, and a drive that reddens
+    // because the pool is briefly degraded reports on the pool, not on
+    // this build.
+    if (!offline) {
+      await until(t, find.text('SOQUPOOL'), limit: const Duration(seconds: 60));
+      await t.tap(find.byKey(const ValueKey('card pool')));
+      await until(t, find.text('POOL HASHRATE'));
+      await t.tap(find.byKey(const ValueKey('card pool')));
+    }
+    // ⛔ The emission card reads FROM GENESIS only while Mainnet is not
+    // answering: the screen passes `fromGenesis: mainnet && !live`, so a
+    // connected device shows the reward at the height it actually read and
+    // the genesis headline never appears. The drive asserted the genesis
+    // reading unconditionally, which was true for everyone until Mainnet
+    // opened and is true for nobody connected since.
     await t.tap(find.byKey(const ValueKey('card emission')));
-    await until(t, find.text('BLOCK REWARD · GENESIS'));
+    await until(t, find.text(offline ? 'BLOCK REWARD · GENESIS' : 'BLOCK REWARD'));
     await mark(t, 'network-mainnet');
     await tapText(t, 'Wallet');
     await until(t, find.text('SEND'));
@@ -235,10 +251,13 @@ void main() {
     await tapText(t, 'Network');
     await until(t, find.text('CHAIN · STAGENET'));
     await until(t, find.text('SOQUCOIN · ML-DSA-44 · LIVE'), limit: const Duration(seconds: 60));
-    await until(t, find.text('OPERATIONAL'), limit: const Duration(seconds: 60));
-    await until(t, find.textContaining('SOQUPOOL is operational'));
-    await t.tap(find.byKey(const ValueKey('card pool')));
-    await until(t, find.text('POOL HASHRATE'));
+    // ⛔ NO POOL CARD HERE. showPool is `live && (mainnet || !seenLive)`, so
+    // once this install has seen Mainnet answer the pool is shown on Mainnet
+    // alone — it reports on the chain it mines, and its figures beside a
+    // Stagenet height would read as Stagenet's. The drive looked for it here
+    // because it was written while `seenLive` was false for everyone.
+    expect(find.text('SOQUPOOL'), findsNothing,
+        reason: 'the pool reports on Mainnet, not on the chain being viewed');
     await mark(t, 'network-stagenet');
     await tapText(t, 'Wallet');
     await until(t, find.text('SEND'));
