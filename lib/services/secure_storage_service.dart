@@ -283,6 +283,12 @@ class SecureStorageService {
   /// otherwise both succeed while the second erases the first's change: an
   /// added wallet missing from the list, or a rename undone. The queue is
   /// static because the app holds more than one storage instance.
+  /// Empty the queue. For a test that replaces the storage underneath it: a
+  /// widget test's fake clock abandons whatever it left in flight, and an
+  /// entry that never finishes would hold every later test's writer.
+  @visibleForTesting
+  static void resetRegistryQueue() => _registryTail = Future.value();
+
   static Future<T> _mutateRegistry<T>(Future<T> Function() body) {
     final previous = _registryTail;
     final done = Completer<void>();
