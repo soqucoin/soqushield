@@ -536,6 +536,55 @@ void main() {
       await _tearDownTree(tester);
     });
 
+    testWidgets('a send-max is refused at the gate, before the credential',
+        (tester) async {
+      // The fee comes out of the same balance. Sending the whole balance
+      // cannot also pay the fee, and the gate used to check the amount alone:
+      // it passed, the device credential was taken, and the builder refused.
+      // That is the worst place to learn you were a fee short.
+      final auth = FakeAuthService();
+      await tester.pumpWidget(_scoped(
+        _wallet(SoqNetwork.mainnet, _mainnetAddress)
+            .copyWith(balance: 5, blockHeight: 100),
+        const MaterialApp(home: SendPilotScreen()),
+        auth: auth,
+      ));
+      await tester.pump();
+      await tester.enterText(find.byType(TextField).at(0), '5');
+      await tester.enterText(find.byType(TextField).at(1), _mainnetAddress);
+      await tester.pump();
+      await tester.tap(find.text('SEND SOQ'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(auth.prompts, 0,
+          reason: 'the refusal happens before the device credential');
+      expect(find.textContaining('plus the network fee'), findsOneWidget);
+      // And it says what WOULD go through, rather than only saying no.
+      expect(find.textContaining('4.9950'), findsOneWidget);
+      await _tearDownTree(tester);
+    });
+
+    testWidgets('an amount that leaves room for the fee still passes the gate',
+        (tester) async {
+      // The guard must not refuse an ordinary send: 1 SOQ out of 5 is fine.
+      final auth = FakeAuthService();
+      await tester.pumpWidget(_scoped(
+        _wallet(SoqNetwork.mainnet, _mainnetAddress)
+            .copyWith(balance: 5, blockHeight: 100),
+        const MaterialApp(home: SendPilotScreen()),
+        auth: auth,
+      ));
+      await tester.pump();
+      await tester.enterText(find.byType(TextField).at(0), '1');
+      await tester.enterText(find.byType(TextField).at(1), _mainnetAddress);
+      await tester.pump();
+      await tester.tap(find.text('SEND SOQ'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(find.textContaining('plus the network fee'), findsNothing);
+      await _tearDownTree(tester);
+    });
+
     testWidgets('asks for the device credential once the chain has a height',
         (tester) async {
       final auth = FakeAuthService();

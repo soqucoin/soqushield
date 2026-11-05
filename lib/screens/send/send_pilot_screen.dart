@@ -145,9 +145,25 @@ class _SendPilotScreenState extends ConsumerState<SendPilotScreen>
       _showError(addrError);
       return;
     }
-    if (wallet.balance <= 0 || amount > wallet.balance) {
+    // The fee comes out of the SAME balance, so "send everything" has to be
+    // checked against amount + fee. Checking the amount alone let a send-max
+    // through the gate, past the device credential, and into a builder
+    // refusal — the worst place to learn you were a fee short. The figure
+    // drawn in the anatomy above already used amount + fee; this is the same
+    // rule, applied where it decides.
+    if (wallet.balance <= 0) {
       setState(() => _inFlight = false);
       _showError('Insufficient SOQ balance');
+      return;
+    }
+    if (amount + _estimatedFee > wallet.balance) {
+      setState(() => _inFlight = false);
+      final most = (wallet.balance - _estimatedFee).clamp(0.0, double.infinity);
+      _showError(most > 0
+          ? 'Not enough for the amount plus the network fee. '
+              'The most you can send is ${most.toStringAsFixed(4)} '
+              '${wallet.network.ticker}.'
+          : 'Not enough to cover the network fee.');
       return;
     }
     // No chain tip yet (the network has not answered since boot): a cached
