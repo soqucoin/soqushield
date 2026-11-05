@@ -127,6 +127,8 @@ void main() {
     secureStore['soq_account_index_v2'] = '0';
     secureStore['soq_backup_confirmed_v2'] = 'true';
     secureStore['soq_network_v2'] = network.name;
+    // The one-time move to Mainnet is decided for these existing installs.
+    secureStore['soq_mainnet_switch_v1'] = 'kept';
   }
 
   Set<String> hosts() => overrides.urls.map((u) => u.host).toSet();
@@ -153,7 +155,7 @@ void main() {
         reason: 'only the two mainnet hosts may be contacted');
   });
 
-  test('an existing stagenet install keeps stagenet and its address', () async {
+  test('an existing stagenet install keeps stagenet and its address once the move is decided', () async {
     storeWallet(SoqNetwork.stagenet, stagenetAddress);
     final s = await _boot(container);
     expect(s.network, SoqNetwork.stagenet);

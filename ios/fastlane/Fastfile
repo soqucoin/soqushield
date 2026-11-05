@@ -1,0 +1,202 @@
+# SoquShield iOS: the TestFlight lanes.
+#
+#   cd ios && fastlane beta                       # clean, build, check the archive, upload
+#   cd ios && fastlane archive                    # clean, build and check, no upload
+#   cd ios && IPA=/abs/path/SoquShield.ipa fastlane check_ipa
+#   cd ios && BUILD=25 VERSION=2.4.1 GROUP="Soqucoin Beta 2" NOTE="..." fastlane distribute
+#
+# The lanes read their inputs from the environment (the prefix form above);
+# a relative path resolves against ios/fastlane, so give an absolute one.
+#
+# Credentials (one-time setup, see RELEASE_SUBMISSION_RUNBOOK.md section 3):
+#   App Store Connect, Users & Access, Integrations, API keys: generate one
+#   (role App Manager), download AuthKey_<KEYID>.p8 to ~/.appstoreconnect/
+#   (never into the repository), fill ~/.soqushield-release.env from
+#   fastlane.env.example, then:
+#     set -a; source ~/.soqushield-release.env; set +a
+#     cd ios && fastlane beta
+
+default_platform(:ios)
+
+# The archive check's pure parts, with their own tests
+# (`ruby archive_check_test.rb` in this directory).
+require File.expand_path("archive_check", __dir__)
+
+# CocoaPods requires a UTF-8 locale; a non-interactive shell often has none,
+# which makes Flutter's `pod` health check fail ("CocoaPods installed but
+# broken") and aborts `flutter build ipa`. Force a sane locale.
+ENV["LANG"] ||= "en_US.UTF-8"
+ENV["LC_ALL"] ||= "en_US.UTF-8"
+
+# fastlane runs under its own gem home (GEM_HOME and GEM_PATH point at its
+# bundle), and the CocoaPods binary installed beside the system Ruby cannot
+# find its gems there: Flutter's `pod` check then reports CocoaPods as
+# installed but broken, and the build aborts as soon as the pod set has
+# changed. The Flutter build runs with the two variables unset.
+def flutter_env
+  "env -u GEM_HOME -u GEM_PATH"
+end
+
+def require_env!(names)
+  missing = names.select { |n| ENV[n].to_s.strip.empty? }
+  return if missing.empty?
+  UI.user_error!(
+    "Missing env: #{missing.join(', ')}.\n" \
+    "Copy fastlane.env.example to ~/.soqushield-release.env, fill it in, then:\n" \
+    "  set -a; source ~/.soqushield-release.env; set +a; cd ios && fastlane beta\n" \
+    "Key setup: App Store Connect, Users & Access, Integrations, API keys."
+  )
+end
+
+def pubspec_version
+  File.read(File.expand_path("../../pubspec.yaml", __dir__))[/^version:\s*(\S+)/, 1]
+end
+
+def asc_key
+  require_env!(%w[ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_PATH])
+  UI.user_error!("ASC_KEY_PATH is not a file: #{ENV['ASC_KEY_PATH']}") unless File.file?(ENV["ASC_KEY_PATH"])
+  app_store_connect_api_key(
+    key_id: ENV["ASC_KEY_ID"],
+    issuer_id: ENV["ASC_ISSUER_ID"],
+    key_filepath: ENV["ASC_KEY_PATH"]
+  )
+end
+
+# A clean release archive. The native-assets frameworks keep the slices of the
+# last build in the checkout, so an archive built after a simulator run embeds
+# simulator binaries and App Store Connect refuses the upload; a clean build
+# first makes the archive the device build it must be.
+def build_ipa!
+  sh("cd ../.. && #{flutter_env} flutter clean")
+  sh("cd ../.. && #{flutter_env} flutter build ipa --release")
+  ipa = Dir.glob(File.expand_path("../../build/ios/ipa/*.ipa", __dir__)).max_by { |f| File.mtime(f) }
+  UI.user_error!("No .ipa under build/ios/ipa: did the Flutter build fail?") unless ipa
+  ipa
+end
+
+# Every slice of every binary in the archive must be built for the iOS device
+# platform. The binaries are the app, its frameworks, its app extensions and
+# their frameworks, and every bare dylib under any of those Frameworks
+# directories; `otool -arch all -l` lists every slice of each, and each slice
+# is judged on its own (archive_check.rb: LC_BUILD_VERSION platform 2, or
+# `ios` on a toolchain that names it; the older LC_VERSION_MIN_IPHONEOS only
+# on a device CPU architecture, since legacy simulator slices carried it too).
+# Returns the offending entries, empty when the archive is clean; a bundle
+# without an executable is an offender, and an archive with nothing to
+# inspect is refused.
+def simulator_slices(ipa)
+  dir = Dir.mktmpdir("soqushield-ipa")
+  sh("unzip -q -o #{ipa.shellescape} -d #{dir.shellescape}")
+  apps = Dir.glob("#{dir}/Payload/*.app")
+  UI.user_error!("Expected one Payload/*.app in #{File.basename(ipa)}, found #{apps.size}") unless apps.size == 1
+  bad = []
+  inspected = 0
+  ArchiveCheck.binaries(apps.first).each do |bundle, bin|
+    short = bundle.sub(dir + "/", "")
+    if bin.nil? || !File.file?(bin)
+      bad << "#{short} (no executable named by its Info.plist)"
+      next
+    end
+    inspected += 1
+    problems = ArchiveCheck.problems(`otool -arch all -l #{bin.shellescape} 2>/dev/null`)
+    bad << "#{short} (#{problems.join('; ')})" unless problems.empty?
+  end
+  UI.user_error!("No binary inspected in #{File.basename(ipa)}") if inspected.zero?
+  bad
+ensure
+  FileUtils.remove_entry(dir) if dir && File.directory?(dir)
+end
+
+def check_ipa!(ipa)
+  bad = simulator_slices(ipa)
+  if bad.empty?
+    UI.success("Archive check: every slice of every binary in #{File.basename(ipa)} is an iOS device build")
+  else
+    UI.user_error!("Archive check failed, #{bad.size} entry(ies) not built for the iOS device platform:\n  #{bad.join("\n  ")}\nRun `flutter clean` and rebuild before uploading.")
+  end
+end
+
+platform :ios do
+  desc "Clean, build the release archive, check every binary's platform, upload to TestFlight"
+  lane :beta do
+    api_key = asc_key
+    UI.important("pubspec version: #{pubspec_version}. Stores reject duplicate build numbers; bump +build in pubspec.yaml before each upload")
+    ipa = build_ipa!
+    check_ipa!(ipa)
+    upload_to_testflight(
+      api_key: api_key,
+      ipa: ipa,
+      skip_waiting_for_build_processing: true
+    )
+    UI.success("Uploaded #{File.basename(ipa)} (#{pubspec_version}); it shows in TestFlight after processing")
+  end
+
+  desc "Clean, build the release archive and check every binary's platform; no upload"
+  lane :archive do
+    ipa = build_ipa!
+    check_ipa!(ipa)
+    UI.success("Archive ready: #{ipa}")
+  end
+
+  desc "Check an existing archive's binaries: IPA=/abs/path fastlane check_ipa"
+  lane :check_ipa do
+    ipa = ENV["IPA"].to_s
+    UI.user_error!("IPA unset or not a file: #{ipa}") unless File.file?(ipa)
+    check_ipa!(ipa)
+  end
+
+  desc "Add a processed build to an external group and submit it for beta review with a what-to-test note: BUILD=<number> VERSION=<version> GROUP=<name> NOTE=<text> fastlane distribute"
+  lane :distribute do
+    api_key = asc_key
+    %w[BUILD VERSION GROUP NOTE].each { |k| UI.user_error!("#{k} unset") if ENV[k].to_s.empty? }
+    # The group is resolved before anything changes, so a wrong name (the
+    # internal group, a typo) stops the lane with no side effect.
+    app = Spaceship::ConnectAPI::App.find("org.soqu.soqushield")
+    group = app.get_beta_groups(filter: { name: ENV["GROUP"] }).find { |g| !g.is_internal_group }
+    UI.user_error!("external group #{ENV['GROUP']} not found") unless group
+    upload_to_testflight(
+      api_key: api_key,
+      app_identifier: "org.soqu.soqushield",
+      app_platform: "ios",
+      distribute_only: true,
+      app_version: ENV["VERSION"],
+      build_number: ENV["BUILD"],
+      distribute_external: true,
+      groups: [ENV["GROUP"]],
+      changelog: ENV["NOTE"],
+      notify_external_testers: true
+    )
+    builds = Spaceship::ConnectAPI.get_builds(filter: { betaGroups: group.id }, includes: "preReleaseVersion,betaAppReviewSubmission", sort: "-uploadedDate", limit: 3).to_models
+    builds.each do |b|
+      s = b.beta_app_review_submission
+      UI.message("GROUP #{group.name}: build #{b.pre_release_version ? b.pre_release_version.version : '?'} (#{b.version}) review=#{s ? s.beta_review_state : 'none'}")
+    end
+  end
+
+  desc "Upload the App Store listing (metadata and screenshots), no binary. Source of truth: fastlane/metadata and store-assets/screenshots/ios-6.9"
+  lane :metadata do
+    api_key = asc_key
+
+    # Screenshots live once, in store-assets/. Sync them into deliver's
+    # expected per-locale layout at run time (fastlane/screenshots is gitignored).
+    src = File.expand_path("../../store-assets/screenshots/ios-6.9", __dir__)
+    shots = Dir.glob("#{src}/*.png").sort
+    UI.user_error!("No screenshots under #{src}") if shots.empty?
+    dst = File.expand_path("screenshots/en-US", __dir__)
+    FileUtils.rm_rf(File.expand_path("screenshots", __dir__))
+    FileUtils.mkdir_p(dst)
+    FileUtils.cp(shots, dst)
+    UI.message("Synced #{shots.size} screenshots from store-assets/screenshots/ios-6.9")
+
+    deliver(
+      api_key: api_key,
+      app_version: pubspec_version.split("+").first,
+      skip_binary_upload: true,
+      overwrite_screenshots: true,
+      run_precheck_before_submit: false,
+      submit_for_review: false,
+      force: true
+    )
+    UI.success("App Store listing updated for #{pubspec_version.split('+').first} (metadata and screenshots, no binary)")
+  end
+end

@@ -1,0 +1,1 @@
+The lite wallet: create, restore, back up, receive, send, activity, settings and the Field Manual. Mainnet is the default network for a new wallet; balances and sending on Mainnet open at mainnet launch. Stagenet stays available in Settings.

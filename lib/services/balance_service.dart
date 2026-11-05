@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import '../models/txid.dart';
 import '../models/utxo.dart';
 import '../models/wallet_keys.dart';
 
@@ -102,6 +103,9 @@ class BalanceService {
   /// Fetch a transaction's raw hex — parsed locally to rebuild history
   /// after a seed restore (bead m4f P2).
   Future<String> getRawTransaction(String txid) async {
+    // The id comes from the history service; anything else would steer the
+    // request path (a '../' segment resolves to another route on the host).
+    if (!isTxid(txid)) throw const FormatException('not a transaction id');
     final data = await _get('/api/v2/tx/$txid');
     final raw = data['data'] as String?;
     if (raw == null || raw.isEmpty) {

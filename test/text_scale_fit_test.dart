@@ -21,6 +21,7 @@ import 'package:soqushield/providers/network_provider.dart';
 import 'package:soqushield/providers/session_provider.dart';
 import 'package:soqushield/providers/wallet_provider.dart';
 import 'package:soqushield/providers/weather_provider.dart';
+import 'package:soqushield/screens/activity/activity_detail_sheet.dart';
 import 'package:soqushield/screens/activity/activity_pilot_screen.dart';
 import 'package:soqushield/screens/auth/create_account_pilot_screen.dart';
 import 'package:soqushield/screens/auth/lock_pilot_screen.dart';
@@ -47,7 +48,11 @@ const _surfaces = [Size(375, 667), Size(360, 640)];
 /// the cells are tested at their widest.
 final _words = List.generate(24, (i) => 'material');
 
-WalletState _wallet({bool backedUp = true, double balance = 0}) => WalletState(
+WalletState _wallet(
+        {bool backedUp = true,
+        double balance = 0,
+        List<WalletTransaction> transactions = const []}) =>
+    WalletState(
       keys: WalletKeys(
         publicKey: Uint8List(WalletKeys.pubKeySize),
         address: _mainnetAddress,
@@ -61,6 +66,7 @@ WalletState _wallet({bool backedUp = true, double balance = 0}) => WalletState(
       isInitialized: true,
       balance: balance,
       blockHeight: 1234,
+      recentTransactions: transactions,
     );
 
 /// A credential that never answers, so the lock screen stays put.
@@ -141,6 +147,41 @@ void main() {
         await tester.pump(const Duration(seconds: 2));
       });
     }
+
+    testWidgets('the widest activity row and the widest detail sheet fit '
+        '$tag at the limit', (tester) async {
+      _surface(tester, size);
+      // The widest row is the largest amount one transaction can carry, just
+      // under the 20B SOQ per-transaction ceiling (MAX_MONEY). The widest
+      // sheet amount is the largest shown to the satoshi, just under 2^26
+      // SOQ (fmt.dart kSatoshiExactLimit); that one is opened.
+      final wallet = _wallet(transactions: [
+        WalletTransaction(
+          txid:
+              '824e36edbd426881285cfc3b78c8d2506014836aac4f539fd4c726b9b1f865f9',
+          type: TxType.received,
+          amount: 19999999999.99,
+          timestamp: DateTime(2026, 10, 14, 23, 54),
+        ),
+        WalletTransaction(
+          txid:
+              '3f1c0a9b8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a3928170f6e5d4c',
+          type: TxType.sent,
+          amount: 67108863.99999999,
+          timestamp: DateTime(2026, 10, 14, 23, 50),
+        ),
+      ]);
+      await tester.pumpWidget(_scoped(wallet, const ActivityPilotScreen()));
+      await tester.pump();
+      await tester.tap(find.text('Sent'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byType(ActivityDetailSheet), findsOneWidget);
+      expect(tester.takeException(), isNull,
+          reason: 'the activity detail sheet overflows on $tag');
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(seconds: 2));
+    });
 
     testWidgets('the revealed phrase fits $tag at the limit, every word '
         'whole', (tester) async {

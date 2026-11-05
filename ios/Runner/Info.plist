@@ -12,10 +12,20 @@
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<!-- Export-compliance encryption declaration (mandatory at every App Store upload).
-	     STUBBED FOR SIGN-OFF (the company and counsel): set to false on the determination that
-	     this build uses only EXEMPT encryption — HTTPS/TLS, the platform Keychain, the AES-GCM
-	     backup file under a user password, and ML-DSA-44 digital signatures (signing, not
-	     encryption). See SOQUSHIELD_STORE_PRIVACY_SIGNOFF_2026-06-24.md. -->
+	     Determined 2026-10-08 and corrected 2026-10-14
+	     (docs/appstore-audit/2026-10-08-app-store-submission-package.md, section 3 and its
+	     amendment): the app implements standard encryption of its own, AES-256-GCM with PBKDF2
+	     for the backup file (lib/services/backup_service.dart, through pointycastle), beside TLS
+	     and the Keychain from the operating system and ML-DSA-44 signatures. In Apple's
+	     vocabulary "non-exempt" means export compliance documentation is due: for proprietary
+	     algorithms, or for standard algorithms from a third-party library when the app is on the
+	     French App Store. The app is not distributed in France, so no documentation is due and
+	     the answer is NO, which is what App Store Connect records for each answered build (one given
+	     true cannot complete, because no declaration record can be created for this case; read
+	     and confirmed on build 32, 2026-10-14). A build's value is write-once. The EAR
+	     classification (mass-market standard encryption, self-classified) lives in the package
+	     and does not change this key. When France is added after the ANSSI declaration, the key
+	     becomes true with Apple's code in ITSEncryptionExportComplianceCode beside it. -->
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>CFBundleDevelopmentRegion</key>

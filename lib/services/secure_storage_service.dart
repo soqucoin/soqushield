@@ -38,6 +38,12 @@ class SecureStorageService {
   static const _keyBackupConfirmed = 'soq_backup_confirmed_v2';
   static const _keyNetwork = 'soq_network_v2';
   static const _keyCreatedAt = 'soq_key_created_v2';
+  // The one-time move to Mainnet after block 1 (13 October 2026): 'moved' when
+  // the stored network was changed, 'kept' when it was Mainnet already; and
+  // whether the member dismissed the notice that explains the move.
+  static const _keyMainnetSwitch = 'soq_mainnet_switch_v1';
+  static const _keyMainnetSwitchNoticeDismissed =
+      'soq_mainnet_switch_notice_dismissed_v1';
 
   final FlutterSecureStorage _storage;
 
@@ -105,6 +111,39 @@ class SecureStorageService {
     );
   }
 
+  /// Store the network alone, for the one-time move to Mainnet at boot.
+  Future<void> writeNetwork(SoqNetwork network) async {
+    await _storage.write(key: _keyNetwork, value: network.name);
+  }
+
+  /// The one-time move to Mainnet: null when it has not been decided on this
+  /// install, 'moving' while the move is being written (the stored network
+  /// may or may not be Mainnet yet; the next boot completes the move),
+  /// 'moved' when the stored network was changed to Mainnet, 'kept' when it
+  /// was Mainnet already.
+  Future<String?> readMainnetSwitch() async {
+    return _storage.read(key: _keyMainnetSwitch);
+  }
+
+  /// Recorded before the stored network is rewritten, so a move interrupted
+  /// by a failed write is completed at the next boot and still shows the
+  /// notice, instead of reading as an install that was on Mainnet already.
+  Future<void> markMainnetSwitchMoving() async {
+    await _storage.write(key: _keyMainnetSwitch, value: 'moving');
+  }
+
+  Future<void> markMainnetSwitch({required bool moved}) async {
+    await _storage.write(key: _keyMainnetSwitch, value: moved ? 'moved' : 'kept');
+  }
+
+  Future<bool> isMainnetSwitchNoticeDismissed() async {
+    return await _storage.read(key: _keyMainnetSwitchNoticeDismissed) == 'true';
+  }
+
+  Future<void> dismissMainnetSwitchNotice() async {
+    await _storage.write(key: _keyMainnetSwitchNoticeDismissed, value: 'true');
+  }
+
   /// Read the stored account index.
   Future<int> readAccountIndex() async {
     final idx = await _storage.read(key: _keyAccountIndex);
@@ -144,10 +183,22 @@ class SecureStorageService {
   /// which has that accessibility.
   Future<void> wipeWallet() async {
     await _storage.deleteAll();
-    for (final key in legacyDefaultKeys) {
+    for (final key in [...legacyDefaultKeys, ...sessionKeys]) {
       await kSharedSecureStorage.delete(key: key);
     }
   }
+
+  /// The session settings the session notifier keeps through the shared
+  /// instance: the auto-lock timeout, lock on background, the failed-attempt
+  /// count and the lockout end. A wipe removes them, so the next wallet on
+  /// the device starts from the defaults; the notifier's own list of its
+  /// keys is pinned to this one by a test.
+  static const sessionKeys = [
+    'soq_session_timeout_v1',
+    'soq_lock_on_bg_v1',
+    'soq_failed_attempts_v1',
+    'soq_locked_until_v1',
+  ];
 
   /// Keys the 2.1 build wrote through a default storage instance: the social
   /// sign-in session and the pending treasury swap. Neither feature exists in

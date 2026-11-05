@@ -1,0 +1,1 @@
+Self-custodial wallet for Soqucoin, the post-quantum network.

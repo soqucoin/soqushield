@@ -133,16 +133,30 @@ void main() {
     // ── home on Mainnet: the badge, the address, OFFLINE ──
     await until(t, find.text('SEND'));
     await until(t, find.text('MAINNET'));
-    await until(t, find.text('SOQUCOIN · ML-DSA-44 · OFFLINE'), limit: const Duration(seconds: 40));
+    // Mainnet answers since 2026-10-13, so a connected device reads LIVE
+    // and a device without the network reads OFFLINE; the drive accepts
+    // either and asserts the waiting lines only when offline.
+    // The header reads SYNCING while the first poll runs; wait for one of
+    // the two settled states. Each screen carries its own header, so the
+    // branch is decided on the screen whose lines are asserted.
+    final settled = find.byWidgetPredicate((w) =>
+        w is Text &&
+        (w.data == 'SOQUCOIN · ML-DSA-44 · LIVE' ||
+            w.data == 'SOQUCOIN · ML-DSA-44 · OFFLINE'));
+    await until(t, settled, limit: const Duration(seconds: 40));
     expect(find.textContaining('sq1'), findsWidgets);
     await mark(t, 'home-mainnet');
 
-    // ── network on Mainnet: waiting, the clock offline, the cards closed
-    // with their lines, the pool card waiting; the emission card opened ──
+    // ── network on Mainnet: the cards closed with their lines, the pool
+    // card waiting when offline; the emission card opened ──
     await tapText(t, 'Network');
-    await until(t, find.textContaining('Mainnet opens at launch'), limit: const Duration(seconds: 40));
     await until(t, find.text('100,000 SOQ A BLOCK AT GENESIS'));
-    await until(t, find.text('OPENS AT MAINNET LAUNCH'));
+    await until(t, settled, limit: const Duration(seconds: 40));
+    final offline = find.text('SOQUCOIN · ML-DSA-44 · OFFLINE').evaluate().isNotEmpty;
+    if (offline) {
+      await until(t, find.textContaining('Connecting to Mainnet'), limit: const Duration(seconds: 40));
+      await until(t, find.text('WAITING FOR THE NETWORK'));
+    }
     await t.tap(find.byKey(const ValueKey('card emission')));
     await until(t, find.text('BLOCK REWARD · GENESIS'));
     await mark(t, 'network-mainnet');

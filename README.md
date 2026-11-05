@@ -2,7 +2,7 @@
 
 SoquShield is the self-custodial wallet for Soqucoin, a Layer 1 network built on post-quantum cryptography. Keys are generated and held on the device, and every transaction is signed on the device with ML-DSA-44 (FIPS 204), using the node's own C implementation through FFI. Soqucoin Labs never holds your funds and cannot move them.
 
-This repository is the source of the app on Google Play and TestFlight. The current release is 2.4.1 (build 25).
+This repository is the source of the app on Google Play and the App Store. The current release on both stores is 2.5.0 (build 32). The latest APK on the Releases page is 2.4.1 (build 25).
 
 ## What the app does
 
@@ -16,7 +16,7 @@ This repository is the source of the app on Google Play and TestFlight. The curr
 
 ## Networks
 
-A new wallet is created on Mainnet; balances and sending on Mainnet open at mainnet launch. Stagenet, the public test network, is one tap away in Settings for practising with test coins.
+A new wallet is created on Mainnet. Balances and sending are live. Stagenet is the public test network. It sits one tap away in Settings for practising with test coins.
 
 ## Get the app
 

@@ -5,6 +5,10 @@ import '../theme/instrument.dart';
 import '../providers/wallet_provider.dart';
 import '../widgets/app_drawer.dart';
 
+/// The width of the app's column on a wide screen. A sheet on the root
+/// navigator, outside this column, takes the same limit.
+const double kShellMaxWidth = 430;
+
 /// Bottom navigation shell: Wallet | Activity | Network | More (drawer).
 ///
 /// Send sits in the shell too (reached from the Wallet screen) so the bar
@@ -30,7 +34,7 @@ class AppShell extends StatelessWidget {
       color: Instrument.void0,
       child: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 430),
+          constraints: const BoxConstraints(maxWidth: kShellMaxWidth),
           child: Scaffold(
             key: scaffoldKey,
             drawer: const AppDrawer(),

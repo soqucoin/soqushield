@@ -1,0 +1,21 @@
+SoquShield ist die Self-Custody-Wallet für Soqucoin, ein Layer-1-Netzwerk auf Basis von Post-Quanten-Kryptografie. Jede Transaktion wird auf deinem Gerät mit ML-DSA-44 (FIPS 204) signiert, dem vom NIST standardisierten gitterbasierten Signaturverfahren, das Angriffen künftiger Quantencomputer standhalten soll.
+
+DEINE SCHLÜSSEL, DEINE COINS
+Deine Schlüssel werden ausschließlich auf deinem Gerät erzeugt und gespeichert, geschützt durch deinen Code und Biometrie. Eine Wiederherstellungsphrase aus 24 Wörtern und eine verschlüsselte Backup-Datei sichern deine Wallet. Soqucoin Labs verwahrt niemals dein Guthaben und kann es nicht bewegen.
+
+WAS DU TUN KANNST
+- Eine Wallet erstellen oder mit ihren 24 Wörtern wiederherstellen
+- Deine Adresse als Text oder QR-Code anzeigen
+- SOQ mit Post-Quanten-Signaturen senden und empfangen
+- Deinen Verlauf unter Activity ansehen
+- Field Manual: ein vollständiges Benutzerhandbuch in der App, ohne Konto
+
+NETZWERKE
+Eine neue Wallet wird im Mainnet erstellt, wo Guthaben und Senden live sind. Stagenet, das öffentliche Testnetz, ist in Settings nur einen Tipp entfernt, um mit Test-Coins zu üben.
+
+OFFEN ENTWICKELT
+Die Node-Software von Soqucoin ist Open Source und wurde von Halborn auditiert. Die Wallet liest den Chain-Status über Gateways von Soqucoin Labs. Keine Anmeldung, keine Werbung, keine Drittanbieter-Analysen, kein Datenverkauf.
+
+Die App-Oberfläche und das Field Manual sind derzeit auf Englisch.
+
+Fragen? Das Field Manual in der App und https://soqu.org/help erklären Einrichtung, Senden, Empfangen und Wiederherstellung.

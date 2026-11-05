@@ -9,10 +9,10 @@
 // pays its members to their own addresses, and this screen only reads what
 // the pool publishes.
 //
-// On Mainnet before launch the node does not answer: the status reads
-// OFFLINE with the waiting line, the clock is dashed, the schedule reads from
-// genesis, and the pool section waits (the pool reports on the chain it
-// mines, which is not yet this one).
+// On Mainnet, until this install has seen the node answer, the status reads
+// OFFLINE with the connecting line, the clock is dashed, the schedule reads
+// from genesis, and the pool section waits. After the first answer an
+// unreachable Mainnet is an outage.
 //
 // Copyright 2026 Soqucoin Labs Inc.
 
@@ -31,6 +31,7 @@ import '../../theme/block_clock_figure.dart';
 import '../../theme/fmt.dart';
 import '../../theme/instrument.dart';
 import '../../theme/motion.dart';
+import '../../theme/network_motion.dart';
 
 class NetworkPilotScreen extends ConsumerStatefulWidget {
   const NetworkPilotScreen({super.key});
@@ -45,6 +46,34 @@ class _NetworkPilotScreenState extends ConsumerState<NetworkPilotScreen>
 
   /// The cards a tap has opened on this visit; closed again on a second tap.
   final Set<String> _open = {};
+
+  /// The rows the scanner can pick up and the pick they listen to.
+  final ScanRegistry _registry = ScanRegistry();
+
+  /// Bumped once per reveal: the figures' first arrival, a pull to refresh.
+  final ValueNotifier<int> _revealTrigger = ValueNotifier<int>(0);
+  bool _revealed = false;
+
+  /// One reveal of the figures, on their first arrival and on a refresh.
+  void _reveal() {
+    _revealed = true;
+    _revealTrigger.value++;
+  }
+
+  /// The pool dot's flare as an update lands; the figures last shown.
+  late final AnimationController _poolFlare =
+      AnimationController(vsync: this, duration: MotionTiming.poolFlare);
+  String? _poolKey;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Reduced motion switched on mid-flare: the dot rests at once.
+    if (reducedMotion && _poolFlare.isAnimating) {
+      _poolFlare.stop();
+      _poolFlare.value = 0;
+    }
+  }
   void _toggle(String id) => setState(() {
         if (!_open.remove(id)) _open.add(id);
       });
@@ -57,13 +86,22 @@ class _NetworkPilotScreenState extends ConsumerState<NetworkPilotScreen>
       if (mounted) setState(() {});
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) fireFigure(1, haptic: false);
+      if (!mounted) return;
+      fireFigure(1, haptic: false);
+      // Figures already there on entry arrive for the eye now.
+      if (!_revealed &&
+          (ref.read(chainWeatherProvider).asData?.value.reachable ?? false)) {
+        _reveal();
+      }
     });
   }
 
   @override
   void dispose() {
     _tick?.cancel();
+    _revealTrigger.dispose();
+    _poolFlare.dispose();
+    _registry.dispose();
     disposeFigure();
     super.dispose();
   }
@@ -74,6 +112,7 @@ class _NetworkPilotScreenState extends ConsumerState<NetworkPilotScreen>
     try {
       await ref.read(poolWeatherProvider.future);
     } catch (_) {}
+    if (mounted) _reveal();
   }
 
   @override
@@ -88,6 +127,20 @@ class _NetworkPilotScreenState extends ConsumerState<NetworkPilotScreen>
       final before = previous?.asData?.value.height ?? 0;
       final after = next.asData?.value.height ?? 0;
       if (after > before && before > 0) fireFigure(1, haptic: false);
+      // The figures' first arrival: the reveal, once.
+      if (!_revealed && (next.asData?.value.reachable ?? false)) _reveal();
+    });
+    // An event in the pool's figures: the dot flares once. The key holds
+    // the counts and states the card renders (poolFigureKey); the first
+    // answer of a visit is an arrival.
+    ref.listen(poolWeatherProvider, (previous, next) {
+      final pool = next.asData?.value;
+      if (pool == null || !pool.reachable) return;
+      final key = poolFigureKey(pool);
+      final before = _poolKey;
+      _poolKey = key;
+      if (before == null || before == key) return;
+      if (!reducedMotion) _poolFlare.forward(from: 0);
     });
 
     final chainOrNull = chainAsync.asData?.value;
@@ -96,9 +149,9 @@ class _NetworkPilotScreenState extends ConsumerState<NetworkPilotScreen>
     // Read only under `live`, which implies the value is there.
     final chain = chainOrNull ?? ChainWeather.unreachable(DateTime.now());
     final mainnet = wallet.network == SoqNetwork.mainnet;
-    // Mainnet before launch: the endpoints do not answer yet.
+    // Mainnet never answered on this install yet: connecting.
     final waiting = mainnet && !live && !loading && !seenLive;
-    // Mainnet after launch, not answering: an outage.
+    // Mainnet answered before and does not now: an outage.
     final reconnecting = mainnet && !live && !loading && seenLive;
     final now = DateTime.now();
     final since = live ? chain.sinceTip(now) : Duration.zero;
@@ -131,8 +184,8 @@ class _NetworkPilotScreenState extends ConsumerState<NetworkPilotScreen>
             ConstrainedBox(
               constraints: const BoxConstraints(minHeight: 30),
               child: waiting
-                  ? _line('Mainnet opens at launch. The network and pool '
-                      'figures appear here then.')
+                  ? _line('Connecting to Mainnet. The network and pool '
+                      'figures appear here once it answers.')
                   : reconnecting
                       ? _line('Reconnecting to the network.')
                       : const SizedBox.shrink(),
@@ -147,7 +200,13 @@ class _NetworkPilotScreenState extends ConsumerState<NetworkPilotScreen>
               child: RepaintBoundary(
                 child: AnimatedBuilder(
                   animation: figureListenable,
-                  builder: (_, _) => SizedBox(
+                  builder: (_, _) {
+                    // The fraction is read per frame, so the head sits at
+                    // the true elapsed fraction between the timer's ticks.
+                    final frameSince = clocked
+                        ? chain.sinceTip(DateTime.now())
+                        : Duration.zero;
+                    return SizedBox(
                     height: 170,
                     width: double.infinity,
                     child: CustomPaint(
@@ -156,10 +215,13 @@ class _NetworkPilotScreenState extends ConsumerState<NetworkPilotScreen>
                         pulse: pulseValue,
                         live: live,
                         fraction: clocked
-                            ? since.inMilliseconds /
+                            ? frameSince.inMilliseconds /
                                 Emission.targetSpacing.inMilliseconds
                             : 0,
-                        centreValue: clocked ? fmtClock(since) : '—',
+                        motion: clocked && !reducedMotion,
+                        targetSeconds:
+                            Emission.targetSpacing.inSeconds.toDouble(),
+                        centreValue: clocked ? fmtClock(frameSince) : '—',
                         centreSub: live
                             ? 'SINCE LAST BLOCK'
                             : loading
@@ -171,7 +233,8 @@ class _NetworkPilotScreenState extends ConsumerState<NetworkPilotScreen>
                         rightSub: 'NETWORK HASHRATE',
                       ),
                     ),
-                  ),
+                  );
+                  },
                 ),
               ),
             ),
@@ -184,7 +247,14 @@ class _NetworkPilotScreenState extends ConsumerState<NetworkPilotScreen>
                 onRefresh: _refresh,
                 color: Instrument.signal,
                 backgroundColor: Instrument.void2,
-                child: ListView(
+                // The scanline over the figures: the reveal as they arrive,
+                // the finger that reads them. The list scrolls as before.
+                child: ScanScope(
+                  registry: _registry,
+                  child: ScanOverlay(
+                    registry: _registry,
+                    revealTrigger: _revealTrigger,
+                    child: ListView(
                   padding: const EdgeInsets.fromLTRB(22, 0, 22, 28),
                   physics: const AlwaysScrollableScrollPhysics(
                       parent: BouncingScrollPhysics()),
@@ -251,15 +321,17 @@ class _NetworkPilotScreenState extends ConsumerState<NetworkPilotScreen>
                       _Card(
                         id: 'pool',
                         label: 'SOQUPOOL',
-                        headline: 'OPENS AT MAINNET LAUNCH',
+                        headline: 'WAITING FOR THE NETWORK',
                         open: _open.contains('pool'),
                         onToggle: () => _toggle('pool'),
                         children: [
                           _note('The pool reports on the chain it mines. Its '
-                              'figures appear here when Mainnet opens.'),
+                              'figures appear here once Mainnet answers.'),
                         ],
                       ),
                   ],
+                ),
+                  ),
                 ),
               ),
             ),
@@ -346,8 +418,9 @@ class _NetworkPilotScreenState extends ConsumerState<NetworkPilotScreen>
   }
 
   /// The schedule at [height]: the reward this block pays and the next
-  /// change. With no height on Mainnet before launch, the schedule reads
-  /// from genesis; on an unreachable Stagenet it reads dashes.
+  /// change. With no height on Mainnet (not yet answered on this install),
+  /// the schedule reads from genesis; on an unreachable Stagenet it reads
+  /// dashes.
   List<Widget> _emission(int? height, {required bool fromGenesis}) {
     final h = height ?? (fromGenesis ? 0 : null);
     if (h == null) {
@@ -427,7 +500,7 @@ class _NetworkPilotScreenState extends ConsumerState<NetworkPilotScreen>
       id: 'pool',
       label: 'SOQUPOOL',
       trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-        instrumentDot(up ? Instrument.signal : Instrument.faint, size: 5),
+        PoolDot(up: up, breath: breath, flare: _poolFlare),
         const SizedBox(width: 7),
         Text((pool.overall ?? '—').toUpperCase(),
             style: Instrument.eyebrow(size: 9.5)),
@@ -477,8 +550,9 @@ class _NetworkPilotScreenState extends ConsumerState<NetworkPilotScreen>
         const SizedBox(height: 6),
         const InstrumentDivider(),
         const _Section('LATEST BLOCKS'),
-        for (final b in pool.latestBlocks.take(6))
-          _BlockRow(height: b.height, ago: fmtAgo(now.difference(b.time))),
+        for (final (i, b) in pool.latestBlocks.take(6).indexed)
+          _BlockRow(
+              index: i, height: b.height, ago: fmtAgo(now.difference(b.time))),
       ],
     ];
   }
@@ -489,6 +563,34 @@ class _NetworkPilotScreenState extends ConsumerState<NetworkPilotScreen>
             style: const TextStyle(
                 color: Instrument.faint, fontSize: 11, height: 1.5)),
       );
+}
+
+/// The pool figures whose change is an event, as the card renders them:
+/// the status, the miners and the workers, the day's block count, the fee
+/// and the scheme, the regions with their state, and the six latest block
+/// heights. The continuous measurements (the hashrate, luck, the round's
+/// effort, the payout countdown, a block's age) move at every poll by
+/// nature and are not events; a raw change that renders the same is no
+/// change. The poll's read time is not a figure.
+String poolFigureKey(PoolWeather pool) {
+  String count(int? v) => v == null ? '—' : fmtInt(v);
+  final fee = pool.feeRate == null
+      ? '—'
+      : '${(pool.feeRate! * 100).toStringAsFixed(2)}%';
+  return [
+    (pool.overall ?? '—').toUpperCase(),
+    count(pool.activeMiners),
+    count(pool.workers),
+    count(pool.blocks24h),
+    fee,
+    pool.scheme?.toUpperCase() ?? '—',
+    pool.regions
+        .map((r) => r.up
+            ? r.region.toUpperCase()
+            : '${r.region.toUpperCase()} DOWN')
+        .join(' · '),
+    pool.latestBlocks.take(6).map((b) => fmtInt(b.height)).join(' '),
+  ].join('\n');
 }
 
 /// A sub-heading inside a card (the latest blocks under the pool's figures).
@@ -548,7 +650,10 @@ class _Card extends StatelessWidget {
             key: ValueKey('card $id'),
             behavior: HitTestBehavior.opaque,
             onTap: onToggle,
-            child: Padding(
+            child: ScanRowBox(
+              id: 'card $id',
+              section: id,
+              child: Padding(
               padding: const EdgeInsets.only(top: 14, bottom: 10),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -575,12 +680,15 @@ class _Card extends StatelessWidget {
                         FittedBox(
                           fit: BoxFit.scaleDown,
                           alignment: Alignment.centerLeft,
-                          child: Text(headline,
+                          child: ScanLit(
+                              id: 'card $id',
+                              text: headline,
                               style: const TextStyle(
-                                  color: Instrument.readout,
                                   fontSize: 13.5,
                                   fontFamily: kMono,
-                                  fontWeight: FontWeight.w500)),
+                                  fontWeight: FontWeight.w500),
+                              color: Instrument.readout,
+                              litColor: Instrument.leadEdge),
                         ),
                         if (sub != null) ...[
                           const SizedBox(height: 4),
@@ -609,6 +717,7 @@ class _Card extends StatelessWidget {
                   ),
                 ],
               ),
+              ),
             ),
           ),
         ),
@@ -630,17 +739,30 @@ class _Card extends StatelessWidget {
   }
 
   Widget _body() => open
-      ? Semantics(
-          explicitChildNodes: true,
-          child: Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: children,
+      ? _CardScope(
+          id: id,
+          child: Semantics(
+            explicitChildNodes: true,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: children,
+              ),
             ),
           ),
         )
       : const SizedBox(width: double.infinity, height: 0);
+}
+
+/// The card a figure sits in, for the scanner's rows and crossings.
+class _CardScope extends InheritedWidget {
+  final String id;
+  const _CardScope({required this.id, required super.child});
+  static String? of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<_CardScope>()?.id;
+  @override
+  bool updateShouldNotify(_CardScope old) => old.id != id;
 }
 
 /// Two stat blocks a row: an eyebrow, a mono value, an optional sub line.
@@ -669,21 +791,38 @@ class _Stat extends StatelessWidget {
   final String? sub;
   const _Stat(this.label, this.value, {this.sub});
   @override
-  Widget build(BuildContext context) => MergeSemantics(
+  Widget build(BuildContext context) {
+    // A row the scanner can pick up: the label brightens and the value
+    // crests while the finger is on it.
+    final section = _CardScope.of(context) ?? '';
+    final id = '$section/$label';
+    final eyebrow = Instrument.eyebrow(size: 9);
+    return ScanRowBox(
+      id: id,
+      section: section,
+      child: MergeSemantics(
         child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: Instrument.eyebrow(size: 9)),
+          ScanLit(
+              id: id,
+              text: label,
+              style: eyebrow,
+              color: eyebrow.color ?? Instrument.label,
+              litColor: Instrument.readout),
           const SizedBox(height: 5),
           FittedBox(
             fit: BoxFit.scaleDown,
             alignment: Alignment.centerLeft,
-            child: Text(value,
+            child: ScanLit(
+                id: id,
+                text: value,
                 style: const TextStyle(
-                    color: Instrument.readout,
                     fontSize: 15,
                     fontFamily: kMono,
-                    fontWeight: FontWeight.w500)),
+                    fontWeight: FontWeight.w500),
+                color: Instrument.readout,
+                litColor: Instrument.leadEdge),
           ),
           if (sub != null) ...[
             const SizedBox(height: 3),
@@ -697,15 +836,25 @@ class _Stat extends StatelessWidget {
                     letterSpacing: 0.4)),
           ],
         ],
-      ));
+      )));
+  }
 }
 
 class _BlockRow extends StatelessWidget {
+  final int index;
   final int height;
   final String ago;
-  const _BlockRow({required this.height, required this.ago});
+  const _BlockRow(
+      {required this.index, required this.height, required this.ago});
   @override
-  Widget build(BuildContext context) => MergeSemantics(
+  Widget build(BuildContext context) {
+    // Keyed by position: a feed may repeat a height, and a key must not.
+    final section = _CardScope.of(context) ?? '';
+    final id = '$section/block $index';
+    return ScanRowBox(
+      id: id,
+      section: section,
+      child: MergeSemantics(
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 7),
         child: Row(
@@ -716,9 +865,12 @@ class _BlockRow extends StatelessWidget {
                     child: instrumentDot(
                         Instrument.signal.withValues(alpha: 0.8), size: 4))),
             const SizedBox(width: 10),
-            Text(fmtInt(height),
-                style: const TextStyle(
-                    color: Instrument.readout, fontSize: 13.5, fontFamily: kMono)),
+            ScanLit(
+                id: id,
+                text: fmtInt(height),
+                style: const TextStyle(fontSize: 13.5, fontFamily: kMono),
+                color: Instrument.readout,
+                litColor: Instrument.leadEdge),
             const Spacer(),
             Text(ago,
                 style: const TextStyle(
@@ -728,5 +880,6 @@ class _BlockRow extends StatelessWidget {
                     letterSpacing: 0.6)),
           ],
         ),
-      ));
+      )));
+  }
 }

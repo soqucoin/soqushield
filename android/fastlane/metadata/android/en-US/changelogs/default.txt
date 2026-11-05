@@ -1,0 +1,1 @@
+Mainnet is live. Balances and sending on Mainnet have worked since 13 October 2026. Create or restore a wallet and back it up. Receive and send SOQ. Activity, settings and the Field Manual are built in. Stagenet is the public test network. It stays available in Settings.

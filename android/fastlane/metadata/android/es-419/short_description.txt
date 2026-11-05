@@ -1,0 +1,1 @@
+Billetera de autocustodia para Soqucoin, la red poscuántica.

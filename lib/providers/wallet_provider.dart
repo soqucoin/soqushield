@@ -55,8 +55,14 @@ class WalletState {
   final SeedPhrase? seedPhrase;
 
   /// Current network. Mainnet for a new install; an existing install keeps
-  /// the network it stored (SecureStorageService.readNetwork).
+  /// the network it stored (SecureStorageService.readNetwork), except once:
+  /// the first boot after the update that followed block 1 moves an install
+  /// that stored Stagenet to Mainnet and remembers that it did.
   final SoqNetwork network;
+
+  /// True while the notice about that one-time move is due: the install was
+  /// moved to Mainnet at boot and the member has not dismissed the notice.
+  final bool mainnetSwitchNotice;
 
   /// Whether seed phrase backup has been confirmed
   final bool backupConfirmed;
@@ -82,6 +88,7 @@ class WalletState {
     this.keys,
     this.seedPhrase,
     this.network = SoqNetwork.mainnet,
+    this.mainnetSwitchNotice = false,
     this.backupConfirmed = false,
     this.isInitialized = false,
     this.isLoading = false,
@@ -103,6 +110,7 @@ class WalletState {
     WalletKeys? keys,
     SeedPhrase? seedPhrase,
     SoqNetwork? network,
+    bool? mainnetSwitchNotice,
     bool? backupConfirmed,
     bool? isInitialized,
     bool? isLoading,
@@ -118,6 +126,7 @@ class WalletState {
       keys: keys ?? this.keys,
       seedPhrase: clearSeedPhrase ? null : (seedPhrase ?? this.seedPhrase),
       network: network ?? this.network,
+      mainnetSwitchNotice: mainnetSwitchNotice ?? this.mainnetSwitchNotice,
       backupConfirmed: backupConfirmed ?? this.backupConfirmed,
       isInitialized: isInitialized ?? this.isInitialized,
       isLoading: isLoading ?? this.isLoading,
@@ -190,6 +199,39 @@ class WalletNotifier extends Notifier<WalletState> {
     TxHistoryService.setNetwork(network);
   }
 
+  /// The one-time move to Mainnet, decided once per install and remembered:
+  /// an install that stored Stagenet (or nothing, which reads as Stagenet)
+  /// moves to Mainnet on its first boot after the update that followed
+  /// block 1 and the stored network is rewritten; an install already on
+  /// Mainnet is marked 'kept'. Once marked, the stored network is honoured
+  /// as it is, so a member who switches back to Stagenet stays there.
+  ///
+  /// The move is three writes: the 'moving' marker, the network, then
+  /// 'moved'. A failed write fails this boot, and the next boot recovers:
+  /// with no marker nothing was changed and the move starts again; with
+  /// 'moving' the move is completed (the network write is repeated, which
+  /// is harmless) and the notice still shows.
+  Future<SoqNetwork> _launchDefault(SoqNetwork stored) async {
+    final decided = await _storageService.readMainnetSwitch();
+    if (decided != null && decided != 'moving') return stored;
+    if (decided == null && stored == SoqNetwork.mainnet) {
+      await _storageService.markMainnetSwitch(moved: false);
+      return stored;
+    }
+    if (decided == null) await _storageService.markMainnetSwitchMoving();
+    await _storageService.writeNetwork(SoqNetwork.mainnet);
+    await _storageService.markMainnetSwitch(moved: true);
+    debugPrint('BOOT[2/5] Stored network ${stored.name} moved to mainnet once');
+    return SoqNetwork.mainnet;
+  }
+
+  /// The member dismissed the notice about the one-time move; it stays
+  /// dismissed across restarts.
+  Future<void> dismissMainnetSwitchNotice() async {
+    await _storageService.dismissMainnetSwitchNotice();
+    state = state.copyWith(mainnetSwitchNotice: false);
+  }
+
   /// Load existing wallet from secure storage.
   Future<void> _loadExistingWallet() async {
     try {
@@ -208,7 +250,13 @@ class WalletNotifier extends Notifier<WalletState> {
         return;
       }
 
-      final network = await _storageService.readNetwork();
+      // The stored network, after the one-time move to Mainnet that the
+      // first boot after block 1 (13 October 2026) applies to an install
+      // that stored Stagenet or nothing; a member's later switch back is kept.
+      final network = await _launchDefault(await _storageService.readNetwork());
+      final mainnetSwitchNotice =
+          await _storageService.readMainnetSwitch() == 'moved' &&
+              !await _storageService.isMainnetSwitchNoticeDismissed();
       final accountIndex = await _storageService.readAccountIndex();
       final backupConfirmed = await _storageService.isBackupConfirmed();
 
@@ -223,14 +271,22 @@ class WalletNotifier extends Notifier<WalletState> {
         accountIndex: accountIndex,
       );
 
-      // ── FIPS 204 Migration Detection ──
-      // If the stored address differs from the freshly derived address,
-      // the key derivation algorithm changed (Round 3 → FIPS 204).
-      // All cached UTXOs belong to the OLD address and are unspendable.
-      // Clear the stale cache to prevent phantom balance display.
+      // ── Stored address differs from the derived one ──
+      // Either the key derivation algorithm changed (Round 3 → FIPS 204) or
+      // the network moved (the one-time move to Mainnet derives the sq1
+      // address of the same seed). The stored network's UTXO partition may
+      // hold outputs of the old address, unspendable by the new one: clear
+      // that partition and store the new address. The other network's
+      // partition is untouched; it is the right cache for a switch back.
+      // Every service follows the STORED network before anything is loaded,
+      // cleared or fetched, so a mainnet wallet never reads or clears the
+      // stagenet partition or queries the stagenet indexer at boot.
+      _applyNetwork(network);
+      _utxoService.setNetworkSync(network);
+
       final storedAddress = await _storageService.readAddress();
       if (storedAddress != null && storedAddress != keys.address) {
-        debugPrint('MIGRATION: Key algorithm changed');
+        debugPrint('MIGRATION: Stored address differs (key algorithm or network change)');
         debugPrint('  Old address: $storedAddress');
         debugPrint('  New address: ${keys.address}');
         await _utxoService.clear();
@@ -243,12 +299,6 @@ class WalletNotifier extends Notifier<WalletState> {
         debugPrint('MIGRATION: Stale UTXO cache cleared, address updated');
       }
 
-      // Every service follows the STORED network before anything is loaded
-      // or fetched, so a mainnet wallet never reads the stagenet partition
-      // or queries the stagenet indexer at boot.
-      _applyNetwork(network);
-      _utxoService.setNetworkSync(network);
-
       // Load UTXO set (empty after migration, populated on first refresh)
       await _utxoService.load();
 
@@ -260,6 +310,7 @@ class WalletNotifier extends Notifier<WalletState> {
       state = WalletState(
         keys: keys,
         network: network,
+        mainnetSwitchNotice: mainnetSwitchNotice,
         backupConfirmed: backupConfirmed,
         isInitialized: true,
         isLoading: false,
@@ -302,6 +353,9 @@ class WalletNotifier extends Notifier<WalletState> {
         keys: keys,
         network: state.network,
       );
+      // A wallet created on this build is a decided install: the one-time
+      // move to Mainnet never applies to it, whatever network it picks later.
+      await _storageService.markMainnetSwitch(moved: false);
 
       _applyNetwork(state.network);
       _utxoService.setNetworkSync(state.network);
@@ -358,6 +412,8 @@ class WalletNotifier extends Notifier<WalletState> {
         network: state.network,
       );
       await _storageService.confirmBackup();
+      // A restored wallet is a decided install too (see createWallet).
+      await _storageService.markMainnetSwitch(moved: false);
 
       _applyNetwork(state.network);
       _utxoService.setNetworkSync(state.network);
@@ -657,9 +713,8 @@ class WalletNotifier extends Notifier<WalletState> {
   ///   - UtxoService (UTXO storage partition)
   ///   - TxHistoryService (tx history storage partition)
   ///
-  /// The mainnet endpoints are real hostnames that fail closed until genesis
-  /// re-homing — switching pre-launch shows honest connection errors, never
-  /// fake data.
+  /// Both networks' endpoints are real hostnames; an unreachable one shows
+  /// a connection error, never fake data.
   ///
   /// Switches run one at a time and the last request wins: a request for the
   /// network already selected, or already being switched to, is a no-op; a
@@ -779,13 +834,15 @@ class WalletNotifier extends Notifier<WalletState> {
       final knownTxids = state.recentTransactions.map((t) => t.txid).toSet();
 
       // Build a map of txid → total value from current UTXOs
-      // (UTXOs belonging to our address in a given TX = received amount)
-      final utxoValueByTxid = <String, double>{};
+      // (UTXOs belonging to our address in a given TX = received amount),
+      // summed in satoshis and divided once, so the amount is the nearest
+      // double to the exact total.
+      final utxoSatByTxid = <String, int>{};
       for (final utxo in currentUtxos) {
-        utxoValueByTxid.update(
+        utxoSatByTxid.update(
           utxo.txid,
-          (v) => v + utxo.value,
-          ifAbsent: () => utxo.value,
+          (v) => v + utxo.valueSat,
+          ifAbsent: () => utxo.valueSat,
         );
       }
 
@@ -831,12 +888,12 @@ class WalletNotifier extends Notifier<WalletState> {
         if (tx == null) {
           // Budget exhausted or fetch failed — fall back to the old
           // UTXO-derived receive detection so fresh deposits still land.
-          final amount = utxoValueByTxid[entry.txid];
-          if (amount != null && amount > 0) {
+          final sat = utxoSatByTxid[entry.txid];
+          if (sat != null && sat > 0) {
             newTxs.add(WalletTransaction(
               txid: entry.txid,
               type: TxType.received,
-              amount: amount,
+              amount: sat / 100000000.0,
               timestamp: estimateBlockTime(confs),
               confirmations: confs,
             ));

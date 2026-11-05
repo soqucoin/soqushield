@@ -23,6 +23,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:soqushield/models/wallet_keys.dart';
 import 'package:soqushield/providers/wallet_provider.dart';
+import 'package:soqushield/providers/session_provider.dart';
+import 'package:soqushield/services/secure_storage_service.dart';
 import 'package:soqushield/services/tx_history_service.dart';
 
 import 'lite_test_support.dart';
@@ -135,6 +137,8 @@ void main() {
     secureStore['soq_account_index_v2'] = '0';
     secureStore['soq_backup_confirmed_v2'] = 'true';
     secureStore['soq_network_v2'] = network.name;
+    // The one-time move to Mainnet is decided for these existing installs.
+    secureStore['soq_mainnet_switch_v1'] = 'kept';
   }
 
   /// The REST bridge for both networks: 42 SOQ confirmed on mainnet, 0 on
@@ -224,11 +228,18 @@ void main() {
       'soq_social_email',
       'soq_social_display_name',
       'soq_pending_swap_v1',
+      'soq_session_timeout_v1',
+      'soq_lock_on_bg_v1',
+      'soq_failed_attempts_v1',
+      'soq_locked_until_v1',
     ]) {
       expect(secureStorageCalls, contains('delete $key'),
           reason: 'on iOS the wallet\'s deleteAll does not reach an item '
               'written with the default accessibility; it is deleted by name');
     }
+    expect(SecureStorageService.sessionKeys,
+        containsAll(SessionNotifier.storedKeys),
+        reason: 'every key the session notifier stores goes with the wipe');
   });
 
   test('4. the UTXO write loop stops at a switch; no old output reaches the '

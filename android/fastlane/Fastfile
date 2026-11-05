@@ -1,0 +1,115 @@
+# SoquShield Android — one-command Play internal-testing submission.
+#
+#   cd android && fastlane beta
+#
+# Credentials (one-time setup, see RELEASE_SUBMISSION_RUNBOOK.md §3):
+#   Play Console → API access → create a service account (role: Release
+#   Manager), download its JSON to ~/.playstore/ (NEVER into the repo),
+#   then fill ~/.soqushield-release.env from fastlane.env.example and run:
+#     set -a; source ~/.soqushield-release.env; set +a
+#     cd android && fastlane beta
+#
+# Release signing is already wired: android/key.properties →
+# ../soqushield-release.jks (alias soqushield, since 2026-02-22).
+
+default_platform(:android)
+
+def require_env!(names)
+  missing = names.select { |n| ENV[n].to_s.strip.empty? }
+  return if missing.empty?
+  UI.user_error!(
+    "Missing env: #{missing.join(', ')}.\n" \
+    "Copy fastlane.env.example to ~/.soqushield-release.env, fill it in, then:\n" \
+    "  set -a; source ~/.soqushield-release.env; set +a; cd android && fastlane beta\n" \
+    "Key setup: Play Console → API access → service account JSON."
+  )
+end
+
+def pubspec_version
+  File.read(File.expand_path("../../pubspec.yaml", __dir__))[/^version:\s*(\S+)/, 1]
+end
+
+platform :android do
+  desc "Build the Flutter .aab and upload to the Play internal-testing track"
+  lane :beta do
+    require_env!(%w[PLAY_JSON_KEY_PATH])
+    UI.user_error!("PLAY_JSON_KEY_PATH does not exist: #{ENV['PLAY_JSON_KEY_PATH']}") unless File.exist?(ENV["PLAY_JSON_KEY_PATH"])
+    UI.user_error!("android/key.properties missing — release .aab would be debug-signed") unless File.exist?(File.expand_path("../key.properties", __dir__))
+
+    UI.important("pubspec version: #{pubspec_version} — stores reject duplicate build numbers; bump +build in pubspec.yaml before each upload")
+
+    sh("cd ../.. && flutter build appbundle --release")
+
+    aab = File.expand_path("../../build/app/outputs/bundle/release/app-release.aab", __dir__)
+    UI.user_error!("No .aab at #{aab} — flutter build failed?") unless File.exist?(aab)
+
+    upload_to_play_store(
+      track: "internal",
+      aab: aab,
+      json_key: ENV["PLAY_JSON_KEY_PATH"],
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true
+    )
+    UI.success("Uploaded app-release.aab (#{pubspec_version}) to Play internal testing")
+  end
+
+  desc "Upload the Play listing (metadata + graphics + screenshots) — no binary. Source of truth: fastlane/metadata + store-assets/"
+  lane :metadata do
+    require_env!(%w[PLAY_JSON_KEY_PATH])
+    UI.user_error!("PLAY_JSON_KEY_PATH does not exist: #{ENV['PLAY_JSON_KEY_PATH']}") unless File.exist?(ENV["PLAY_JSON_KEY_PATH"])
+
+    # Graphics live once, in store-assets/. Sync them into supply's expected
+    # layout at run time (metadata/android/en-US/images is gitignored).
+    assets = File.expand_path("../../store-assets", __dir__)
+    images = File.expand_path("metadata/android/en-US/images", __dir__)
+    FileUtils.rm_rf(images)
+    FileUtils.mkdir_p("#{images}/phoneScreenshots")
+    FileUtils.cp("#{assets}/icon-512.png", "#{images}/icon.png")
+    FileUtils.cp("#{assets}/feature-graphic-1024x500.png", "#{images}/featureGraphic.png")
+    shots = Dir.glob("#{assets}/screenshots/android-phone/*.png").sort
+    UI.user_error!("No screenshots under #{assets}/screenshots/android-phone") if shots.empty?
+    FileUtils.cp(shots, "#{images}/phoneScreenshots")
+    UI.message("Synced icon + feature graphic + #{shots.size} screenshots from store-assets/")
+
+    # supply edits the listing against a release on the track, so the version code must be one the
+    # track carries; the pubspec's code runs ahead of the track between a version bump and its upload
+    # (2026-10-21: pubspec 32, track 31, and the lane stopped before uploading anything).
+    codes = google_play_track_version_codes(json_key: ENV["PLAY_JSON_KEY_PATH"], track: "internal")
+    UI.user_error!("The internal track carries no release") if codes.empty?
+
+    upload_to_play_store(
+      json_key: ENV["PLAY_JSON_KEY_PATH"],
+      track: "internal",
+      version_code: codes.max,
+      skip_upload_aab: true,
+      skip_upload_apk: true,
+      skip_upload_changelogs: true,
+      sync_image_upload: true
+    )
+    UI.success("Play listing updated (metadata + images, no binary)")
+  end
+
+  desc "Promote the current pubspec build from internal testing to PRODUCTION (public launch). Requires Policy > App content all green."
+  lane :promote do
+    require_env!(%w[PLAY_JSON_KEY_PATH])
+    UI.user_error!("PLAY_JSON_KEY_PATH does not exist: #{ENV['PLAY_JSON_KEY_PATH']}") unless File.exist?(ENV["PLAY_JSON_KEY_PATH"])
+
+    code = pubspec_version.split("+").last.to_i
+    UI.important("Promoting build #{code} (#{pubspec_version}) internal -> production. This is the PUBLIC store release.")
+
+    upload_to_play_store(
+      json_key: ENV["PLAY_JSON_KEY_PATH"],
+      track: "internal",
+      track_promote_to: "production",
+      version_code: code,
+      skip_upload_aab: true,
+      skip_upload_apk: true,
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+      skip_upload_changelogs: false
+    )
+    UI.success("Build #{code} submitted to production — live on the store page once Google's review clears")
+  end
+end

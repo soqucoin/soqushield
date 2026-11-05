@@ -64,10 +64,14 @@ class _CountingWallet extends MockWalletNotifier {
 /// A device credential that is asked for and never answers, so the lock
 /// screen stays where a test can see it.
 class _PendingAuthService extends FakeAuthService {
+  /// One completer per request, so a test can answer a request late.
+  final List<Completer<bool>> pending = [];
   @override
   Future<bool> authenticateWithBiometrics() {
     prompts++;
-    return Completer<bool>().future;
+    final c = Completer<bool>();
+    pending.add(c);
+    return c.future;
   }
 }
 
@@ -249,7 +253,10 @@ void main() {
     await t.pump();
     expect(find.byType(LockPilotScreen), findsOneWidget,
         reason: 'the lock is routed to the lock screen');
-    expect(credential.prompts, 1, reason: 'the lock screen asks at once');
+    // The prompt waits for an active app plus a short settle (build 30).
+    await t.pump(const Duration(milliseconds: 500));
+    expect(credential.prompts, 1,
+        reason: 'the lock screen asks within half a second');
 
     // Drop the tree so the lock screen's pending prompt and the inactivity
     // timer do not outlive the test.
@@ -317,9 +324,73 @@ void main() {
     await t.pump(const Duration(minutes: 4));
     await t.pump();
     expect(find.byType(LockPilotScreen), findsOneWidget);
+    await t.pump(const Duration(milliseconds: 500));
     expect(credential.prompts, 1);
 
     await t.pumpWidget(const SizedBox.shrink());
     await t.pump(const Duration(minutes: 6));
+  });
+
+  testWidgets('a tap to unlock drops the pending prompt: its late answer is '
+      'ignored and the fresh prompt unlocks', (t) async {
+    t.view.physicalSize = const Size(800, 1600);
+    t.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      t.view.resetPhysicalSize();
+      t.view.resetDevicePixelRatio();
+    });
+    final credential = _PendingAuthService();
+    router.go('/splash');
+    await t.pumpWidget(ProviderScope(
+      overrides: [
+        authProvider
+            .overrideWith(() => MockAuthNotifier(AuthStatus.authenticated)),
+        authServiceProvider.overrideWithValue(credential),
+        walletProvider.overrideWith(() => MockWalletNotifier(_wallet())),
+        networkStatsProvider.overrideWith((ref) => const AsyncData(
+            NetworkStats(blocks: 1234, peers: 8, reachable: true))),
+        chainWeatherProvider.overrideWith((ref) =>
+            Stream.value(ChainWeather.unreachable(DateTime(2026, 10, 6)))),
+      ],
+      child: const SoquShieldApp(),
+    ));
+    await t.pump(const Duration(seconds: 3)); // past the splash
+    await t.pump();
+    expect(find.byType(HomePilotScreen), findsOneWidget);
+
+    // A departure and a return: the lock screen asks once settled.
+    // ignore: invalid_use_of_protected_member
+    t.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    // ignore: invalid_use_of_protected_member
+    t.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 500));
+    expect(find.byType(LockPilotScreen), findsOneWidget);
+    expect(credential.prompts, 1);
+
+    // Four seconds without an answer: the tap appears, and a tap asks again.
+    await t.pump(const Duration(seconds: 4));
+    await t.pump();
+    expect(find.byKey(const Key('lock-retry')), findsOneWidget);
+    await t.tap(find.byKey(const Key('lock-retry')));
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 100));
+    expect(credential.prompts, 2, reason: 'a fresh request');
+
+    // The dropped request answers late with a failure: ignored.
+    credential.pending[0].complete(false);
+    await t.pump();
+    await t.pump();
+    expect(find.text('AUTHENTICATION FAILED'), findsNothing);
+    expect(find.byType(LockPilotScreen), findsOneWidget);
+
+    // The fresh request succeeds: the wallet unlocks and the route leaves.
+    credential.pending[1].complete(true);
+    await t.pump();
+    for (var i = 0; i < 4; i++) {
+      await t.pump(const Duration(milliseconds: 300));
+    }
+    expect(find.byType(LockPilotScreen), findsNothing);
+    await t.pumpWidget(const SizedBox.shrink());
   });
 }

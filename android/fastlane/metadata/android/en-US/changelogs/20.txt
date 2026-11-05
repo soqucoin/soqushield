@@ -1,0 +1,1 @@
+Reliability fixes: USDSOQ send and swap now work end to end, USDSOQ balances self-heal on launch, and the app no longer asks for a screen lock it cannot show. If you set up a wallet on a device without a screen lock, add a PIN or pattern and your wallet opens normally, no recovery phrase needed. Wallets are also no longer shown the setup screen after being idle.

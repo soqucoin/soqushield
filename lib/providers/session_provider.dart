@@ -63,6 +63,16 @@ class SessionNotifier extends Notifier<SessionConfig> {
   static const _keyFailedAttempts = 'soq_failed_attempts_v1';
   static const _keyLockedUntil = 'soq_locked_until_v1';
 
+  /// Every key this notifier stores, through the shared instance. A wipe
+  /// deletes them ([SecureStorageService.sessionKeys] names the same list,
+  /// pinned to this one by a test).
+  static const storedKeys = [
+    _keyTimeout,
+    _keyLockOnBg,
+    _keyFailedAttempts,
+    _keyLockedUntil,
+  ];
+
   final FlutterSecureStorage _storage = kSharedSecureStorage;
   Timer? _inactivityTimer;
   bool _transactionInProgress = false;
@@ -133,6 +143,20 @@ class SessionNotifier extends Notifier<SessionConfig> {
 
   /// Record user activity: a touch anywhere in the app restarts the
   /// inactivity timer (the app root reports every pointer down).
+  /// After a wipe: the defaults with no timer armed, as on a fresh install.
+  /// The stored keys are gone with the wipe; this is the in-memory side.
+  void resetToDefaults() {
+    _inactivityTimer?.cancel();
+    _inactivityTimer = null;
+    _transactionInProgress = false;
+    _pausedDuringTransaction = false;
+    _lockAfterTransaction = false;
+    _systemUiDepth = 0;
+    _pausedBehindSystemUi = false;
+    _pausedAt = null;
+    state = const SessionConfig();
+  }
+
   void recordActivity() {
     _startTimer();
   }
@@ -211,7 +235,8 @@ class SessionNotifier extends Notifier<SessionConfig> {
   // mid-export: the site raising the UI wraps it in [whileSystemUi], and a
   // pause seen behind it is matched to its resume without a lock, unless the
   // app stayed away longer than [systemUiGrace].
-  bool _systemUiActive = false;
+  int _systemUiDepth = 0;
+  bool get _systemUiActive => _systemUiDepth > 0;
   bool _pausedBehindSystemUi = false;
   DateTime? _pausedAt;
 
@@ -226,12 +251,14 @@ class SessionNotifier extends Notifier<SessionConfig> {
   /// Run [action], which raises system UI of the app's own, without the
   /// background and foreground events around it locking the wallet.
   Future<T> whileSystemUi<T>(Future<T> Function() action) async {
-    _systemUiActive = true;
+    // Reference-counted: a second prompt raised while the first is still
+    // pending (a tap to unlock) keeps the guard up until both have ended.
+    _systemUiDepth++;
     _pausedBehindSystemUi = false;
     try {
       return await action();
     } finally {
-      _systemUiActive = false;
+      _systemUiDepth--;
     }
   }
 

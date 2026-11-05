@@ -117,6 +117,18 @@ class AuthService {
     }
   }
 
+  /// Ask the platform to stop a pending credential prompt before a fresh
+  /// one is raised. Android drops its dialog; iOS has no such call and the
+  /// caller ignores the stale result instead.
+  Future<void> cancelAuthentication() async {
+    if (kIsWeb) return;
+    try {
+      await _localAuth.stopAuthentication();
+    } catch (e) {
+      debugPrint('stopAuthentication error: $e');
+    }
+  }
+
   /// Clear all account data from secure storage. Called during wallet wipe.
   Future<void> clearAccount() async {
     await _storage.delete(key: _keyAccountName);

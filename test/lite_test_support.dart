@@ -83,6 +83,8 @@ class FakeAuthService extends AuthService {
   @override
   Future<bool> isDeviceAuthAvailable() async => true;
   @override
+  Future<void> cancelAuthentication() async {}
+  @override
   Future<bool> isBiometricEnabled() async => false;
   @override
   Future<void> setBiometricEnabled(bool enabled) async {}

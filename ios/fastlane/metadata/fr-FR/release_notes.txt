@@ -1,0 +1,1 @@
+Mainnet est en service. Les soldes et les envois sur Mainnet fonctionnent depuis le 13 octobre 2026. Créez ou restaurez un portefeuille et sauvegardez-le. Recevez et envoyez des SOQ. L'historique, les réglages et le Field Manual sont intégrés. Stagenet est le réseau de test public. Il reste disponible dans Settings.

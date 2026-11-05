@@ -1,0 +1,19 @@
+SoquShield is the self-custodial wallet for Soqucoin, a Layer 1 network built on post-quantum cryptography. Every transaction is signed on your device with ML-DSA-44 (FIPS 204), the NIST-standardized lattice signature scheme designed to resist attacks from future quantum computers.
+
+THIS BUILD IS THE MAINNET RELEASE
+Soqucoin mainnet launched on 13 October 2026. This TestFlight build is the same build submitted to the App Store. A new wallet is created on Mainnet, where balances and sending are live: the SOQ you receive here is real. Stagenet, the public test network, is one tap away in Settings for practising with test coins, which have no value.
+
+YOUR KEYS, YOUR COINS
+Your keys are generated and stored only on your device, protected by your passcode and biometrics. A 24-word recovery phrase and an encrypted backup file back up your wallet. Soqucoin Labs never holds your funds and cannot move them. Write down the 24 words before you receive anything: they restore your wallet on any phone and in any future version.
+
+ABOUT TESTFLIGHT
+TestFlight builds expire 90 days after upload. Install the App Store release when it is available. Before you install any update, confirm you have your 24 words. Send a small amount first.
+
+WHAT YOU CAN DO
+- Create a wallet, or restore one from its 24 words
+- Show your address as text or as a QR code
+- Send and receive SOQ with post-quantum signatures
+- Read your history in Activity
+- Field Manual: a full in-app user guide, no account needed
+
+Feedback: dev@soqu.org or TestFlight feedback. Help: https://soqu.org/help

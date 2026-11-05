@@ -31,17 +31,73 @@ class _LockPilotScreenState extends ConsumerState<LockPilotScreen>
   bool _failed = false;
   bool _noDeviceAuth = false;
   Timer? _lockoutTicker;
+  // A prompt that has not answered within a few seconds shows a tap to
+  // unlock, so a request lost in the return transition never leaves the
+  // screen without a way forward.
+  bool _slow = false;
+  Timer? _slowTimer;
+  // Each credential request carries its number; a result that arrives for an
+  // earlier number (a request dropped by a tap to unlock) is ignored.
+  int _attempt = 0;
 
   @override
   void initState() {
     super.initState();
     initFigure();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _authenticate());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _promptWhenActive());
+  }
+
+  /// Resumed, or unknown: the first frames of a launch report no state yet.
+  bool get _resumedNow {
+    final s = WidgetsBinding.instance.lifecycleState;
+    return s == null || s == AppLifecycleState.resumed;
+  }
+
+  /// The automatic prompt waits until the app is active and has stayed
+  /// active through a short settle. A lock raised on the return from another
+  /// app arrives while the system is still finishing the transition, and a
+  /// biometric request made in that window can fail or never answer. Past
+  /// ten seconds without a settled active state there is no automatic
+  /// prompt; the Unlock button asks on a tap.
+  Future<void> _promptWhenActive() async {
+    final deadline = DateTime.now().add(const Duration(seconds: 10));
+    while (mounted && DateTime.now().isBefore(deadline)) {
+      if (!_resumedNow) {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        continue;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+      if (!mounted) return;
+      if (!_resumedNow) continue;
+      debugPrint('LOCK: prompting, lifecycle '
+          '${WidgetsBinding.instance.lifecycleState}');
+      await _authenticate();
+      return;
+    }
+    debugPrint('LOCK: no automatic prompt, lifecycle '
+        '${WidgetsBinding.instance.lifecycleState}');
+  }
+
+  /// A tap while a prompt is pending: the pending request is dropped (the
+  /// platform is asked to stop it where it can, and its result is ignored by
+  /// the attempt number) and a fresh one is raised.
+  Future<void> _retry() async {
+    _slowTimer?.cancel();
+    debugPrint('LOCK: retry by tap');
+    // Not awaited: the platform call is a no-op on iOS and must never hold
+    // the fresh request back.
+    unawaited(ref.read(authServiceProvider).cancelAuthentication());
+    setState(() {
+      _authenticating = false;
+      _slow = false;
+    });
+    await _authenticate();
   }
 
   @override
   void dispose() {
     _lockoutTicker?.cancel();
+    _slowTimer?.cancel();
     disposeFigure();
     super.dispose();
   }
@@ -61,7 +117,14 @@ class _LockPilotScreenState extends ConsumerState<LockPilotScreen>
       _authenticating = true;
       _failed = false;
       _noDeviceAuth = false;
+      _slow = false;
     });
+    _slowTimer?.cancel();
+    _slowTimer = Timer(const Duration(seconds: 4), () {
+      if (mounted && _authenticating) setState(() => _slow = true);
+    });
+    final attempt = ++_attempt;
+    debugPrint('LOCK: authenticate start, attempt $attempt');
 
     final service = ref.read(authServiceProvider);
 
@@ -69,7 +132,7 @@ class _LockPilotScreenState extends ConsumerState<LockPilotScreen>
     // succeed (Android ERROR_NOT_AVAILABLE / iOS passcodeNotSet). Don't
     // burn a failed attempt on it — show enrollment guidance instead.
     if (!await service.isDeviceAuthAvailable()) {
-      if (!mounted) return;
+      if (!mounted || attempt != _attempt) return;
       setState(() {
         _authenticating = false;
         _noDeviceAuth = true;
@@ -79,6 +142,12 @@ class _LockPilotScreenState extends ConsumerState<LockPilotScreen>
 
     final success =
         await session.whileSystemUi(service.authenticateWithBiometrics);
+    if (attempt != _attempt) {
+      debugPrint('LOCK: stale result $success for attempt $attempt ignored');
+      return;
+    }
+    _slowTimer?.cancel();
+    debugPrint('LOCK: authenticate result $success');
     if (!mounted) return;
 
     if (success) {
@@ -198,6 +267,19 @@ class _LockPilotScreenState extends ConsumerState<LockPilotScreen>
           ),
           const SizedBox(height: 16),
           Text('AUTHENTICATING', style: Instrument.eyebrow(size: 11)),
+          if (_slow) ...[
+            const SizedBox(height: 16),
+            SizedBox(
+              width: 220,
+              child: InstrumentButton(
+                key: const Key('lock-retry'),
+                label: 'Tap to unlock',
+                icon: Icons.fingerprint_rounded,
+                primary: true,
+                onTap: _retry,
+              ),
+            ),
+          ],
         ],
       );
     }

@@ -11,7 +11,7 @@ class TxHistoryService {
   static const _maxEntries = 100;
 
   /// Current network — determines storage partition.
-  static SoqNetwork _network = SoqNetwork.stagenet;
+  static SoqNetwork _network = SoqNetwork.mainnet;
 
   /// Network-aware storage key to isolate tx history per network.
   static String get _key => 'soqshield_tx_history_${_network.name}';

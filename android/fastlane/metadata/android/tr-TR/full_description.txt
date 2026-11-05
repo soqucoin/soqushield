@@ -1,0 +1,21 @@
+SoquShield, kuantum sonrası kriptografi üzerine kurulmuş bir Katman 1 ağı olan Soqucoin için kendi kendine saklama (self-custody) cüzdanıdır. Her işlem cihazınızda ML-DSA-44 (FIPS 204) ile imzalanır; bu, NIST tarafından standartlaştırılmış ve gelecekteki kuantum bilgisayarların saldırılarına dayanacak şekilde tasarlanmış kafes tabanlı bir imza şemasıdır.
+
+ANAHTARINIZ SİZİN, COİNİNİZ SİZİN
+Anahtarlarınız yalnızca cihazınızda oluşturulur ve saklanır; parolanız ve biyometrik doğrulamayla korunur. 24 kelimelik kurtarma ifadesi ve şifrelenmiş bir yedek dosyası cüzdanınızı yedekler. Soqucoin Labs fonlarınızı asla tutmaz ve hareket ettiremez.
+
+NELER YAPABİLİRSİNİZ
+- Cüzdan oluşturun veya 24 kelimesiyle geri yükleyin
+- Adresinizi metin ya da QR kod olarak gösterin
+- Kuantum sonrası imzalarla SOQ gönderin ve alın
+- Geçmişinizi Activity bölümünde görün
+- Field Manual: uygulama içi eksiksiz kullanım kılavuzu, hesap gerekmez
+
+AĞLAR
+Yeni cüzdanlar Mainnet üzerinde oluşturulur; bakiye görüntüleme ve gönderim kullanıma açıktır. Herkese açık test ağı Stagenet, test coinleriyle pratik yapmak için Settings'te tek dokunuş uzaklıktadır.
+
+AÇIK GELİŞTİRME
+Soqucoin'in düğüm yazılımı açık kaynaklıdır ve Halborn tarafından denetlenmiştir. Cüzdan, zincir durumunu Soqucoin Labs ağ geçitleri üzerinden okur. Oturum açma yok, reklam yok, üçüncü taraf analitik yok, veri satışı yok.
+
+Uygulama arayüzü ve Field Manual şu anda İngilizcedir.
+
+Sorularınız mı var? Uygulama içi Field Manual ve https://soqu.org/help kurulum, gönderme, alma ve kurtarma konularını anlatır.

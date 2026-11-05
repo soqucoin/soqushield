@@ -16,6 +16,26 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import 'instrument.dart';
+import 'motion.dart';
+
+/// The comet head's angle on the ring at [fraction] of the target spacing,
+/// measured from twelve: the true elapsed fraction, so a late block keeps
+/// the head on its second lap at the angle of a first.
+double cometHeadAngle(double fraction) =>
+    -math.pi / 2 + (fraction % 1.0) * 2 * math.pi;
+
+/// How lit tick [index] is (0 at twelve, clockwise, twelve a lap) at
+/// [fraction]: full as the head reaches it, decaying with
+/// [MotionTiming.tick] at [targetSeconds] a lap; nothing for a tick the
+/// head has not reached this lap. The head exactly on a tick is a crossing
+/// and lights it in full; only the start of the lap is nothing.
+double tickFlareAlpha(double fraction, int index, double targetSeconds) {
+  if (fraction <= 0 || targetSeconds <= 0) return 0;
+  final passed = (fraction % 1.0) * 12 - index; // in ticks
+  if (passed < 0) return 0;
+  final seconds = passed / 12 * targetSeconds;
+  return decay(seconds, MotionTiming.tick.inMilliseconds / 1000);
+}
 
 class BlockClockPainter extends CustomPainter {
   final double breath; // 0..1 ambient loop
@@ -28,12 +48,16 @@ class BlockClockPainter extends CustomPainter {
   final String leftSub; // 'HEIGHT'
   final String rightValue; // '20.4 GH/s'
   final String rightSub; // 'NETWORK HASHRATE'
+  final bool motion; // the comet head and the tick lights, on a clocked chain
+  final double targetSeconds; // one lap of the ring
 
   BlockClockPainter({
     required this.breath,
     required this.pulse,
     required this.live,
     required this.fraction,
+    this.motion = false,
+    this.targetSeconds = 60,
     required this.centreValue,
     required this.centreSub,
     required this.leftValue,
@@ -118,6 +142,45 @@ class BlockClockPainter extends CustomPainter {
           Paint()
             ..strokeWidth = 1.6
             ..color = Instrument.signal.withValues(alpha: 0.9));
+      if (motion) {
+        // The comet head at the true fraction, its trail fading eighty
+        // degrees behind it, drawn in short arcs so the seam at twelve
+        // needs no special case.
+        final a = cometHeadAngle(fraction);
+        const segments = 16;
+        const trail = 80 * math.pi / 180;
+        final trailPaint = Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3.0
+          ..strokeCap = StrokeCap.butt
+          ..blendMode = BlendMode.plus;
+        for (var i = 0; i < segments; i++) {
+          final t = i / segments; // from the trail's faint end to the head
+          trailPaint.color = Color.lerp(Instrument.signal, Instrument.leadEdge, t)!
+              .withValues(alpha: 0.85 * t * t);
+          canvas.drawArc(rect, a - trail + t * trail, trail / segments + 0.002,
+              false, trailPaint);
+        }
+        paintGlowDot(canvas, Offset(cx + r * math.cos(a), cy + r * math.sin(a)),
+            6, 0.95);
+        // The ticks light as the head passes them.
+        for (var i = 0; i < 12; i++) {
+          final lit = tickFlareAlpha(fraction, i, targetSeconds);
+          if (lit < 0.02) continue;
+          final ta = -math.pi / 2 + i * math.pi / 6;
+          canvas.drawLine(
+              Offset(cx + (r - 6) * math.cos(ta), cy + (r - 6) * math.sin(ta)),
+              Offset(cx + r * math.cos(ta), cy + r * math.sin(ta)),
+              Paint()
+                ..strokeWidth = 1.8
+                ..color = Instrument.leadEdge.withValues(alpha: lit));
+          paintGlowDot(
+              canvas,
+              Offset(cx + (r - 1) * math.cos(ta), cy + (r - 1) * math.sin(ta)),
+              4,
+              0.8 * lit);
+        }
+      }
     }
 
     // ── the centre: the time since the last block over its eyebrow ──
@@ -160,6 +223,8 @@ class BlockClockPainter extends CustomPainter {
       old.pulse != pulse ||
       old.live != live ||
       old.fraction != fraction ||
+      old.motion != motion ||
+      old.targetSeconds != targetSeconds ||
       old.centreValue != centreValue ||
       old.centreSub != centreSub ||
       old.leftValue != leftValue ||

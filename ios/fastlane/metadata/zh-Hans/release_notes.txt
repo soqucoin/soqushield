@@ -1,0 +1,1 @@
+Mainnet 已上线。Mainnet 的余额查询和发送功能自 2026 年 10 月 13 日起可用。创建或恢复钱包并进行备份。收款和发送 SOQ。交易记录、设置和 Field Manual 均已内置。Stagenet 是公共测试网络。Stagenet 仍可在 Settings 中使用。
