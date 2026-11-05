@@ -448,21 +448,28 @@ class SecureStorageService {
   /// Returns the stored record. Throws if [id] is not a wallet here — a
   /// rename that silently did nothing would read, from the screen, exactly
   /// like a rename that worked.
+  ///
+  /// The lookup and the write are one step in the registry queue, on a read
+  /// that fails rather than reads as empty: two renames cannot undo each
+  /// other, and an unreadable registry is never replaced by one row.
   Future<WalletRecord> renameWallet(String id, String name) async {
     final cleaned = WalletRecord.cleanName(name);
     if (cleaned == null) {
       throw ArgumentError.value(name, 'name', 'is empty once cleaned');
     }
 
-    final wallets = await listWallets();
-    final existing = wallets.where((w) => w.id == id).firstOrNull;
-    if (existing == null) {
-      throw ArgumentError.value(id, 'id', 'no such wallet in the registry');
-    }
+    return _mutateRegistry(() async {
+      final wallets = await _readRegistryForWrite();
+      final i = wallets.indexWhere((w) => w.id == id);
+      if (i < 0) {
+        throw ArgumentError.value(id, 'id', 'no such wallet in the registry');
+      }
 
-    final renamed = existing.copyWith(name: cleaned);
-    await putWallet(renamed);
-    return renamed;
+      final renamed = wallets[i].copyWith(name: cleaned);
+      wallets[i] = renamed;
+      await _writeRegistry(wallets);
+      return renamed;
+    });
   }
 
   /// Every address already on this device, for refusing a duplicate import.
