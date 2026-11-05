@@ -43,6 +43,11 @@ class UtxoService {
   /// The wallet this instance is holding coins for.
   String get walletId => _walletId;
 
+  /// Advanced every time the partition moves to another wallet or network.
+  /// A [load] whose read began under an older value is answering for a
+  /// partition that is no longer open, and publishes nothing.
+  int _partition = 0;
+
   /// In-memory UTXO set.
   final List<Utxo> _utxos = [];
 
@@ -60,6 +65,7 @@ class UtxoService {
   Future<void> setNetwork(SoqNetwork network) async {
     if (network == _network) return;
     _network = network;
+    _partition++;
     _utxos.clear();
     await load();
     debugPrint('UtxoService: Switched to ${network.name} '
@@ -69,7 +75,9 @@ class UtxoService {
   /// Set network partition without reloading — use during boot when
   /// [load] is called separately immediately after.
   void setNetworkSync(SoqNetwork network) {
+    if (network == _network) return;
     _network = network;
+    _partition++;
   }
 
   /// Open [walletId]'s partition, dropping the coins held for the previous
@@ -80,6 +88,7 @@ class UtxoService {
   Future<void> setWallet(String walletId) async {
     if (walletId == _walletId) return;
     _walletId = walletId;
+    _partition++;
     _utxos.clear();
     _reserved.clear();
     await load();
@@ -92,6 +101,7 @@ class UtxoService {
   void setWalletSync(String walletId) {
     if (walletId == _walletId) return;
     _walletId = walletId;
+    _partition++;
     _utxos.clear();
     _reserved.clear();
   }
@@ -148,9 +158,15 @@ class UtxoService {
       Utxo.totalValue(_utxos.where((u) => u.confirmations == 0).toList());
 
   /// Load UTXO set from secure storage.
+  ///
+  /// ⛔ A read still pending when the partition moves is dropped on arrival:
+  /// publishing it would offer the previous wallet's outputs as this one's,
+  /// and the healing save below would write them into this one's partition.
   Future<void> load() async {
     try {
+      final partition = _partition;
       final raw = await _storage.read(key: _storageKey);
+      if (partition != _partition) return;
       if (raw == null || raw.isEmpty) return;
 
       final list = json.decode(raw) as List<dynamic>;
@@ -463,6 +479,24 @@ class UtxoService {
       await _storage.delete(
         key: WalletRecord.scopeKey(_walletId, 'soq_utxo_set_${n.name}'),
       );
+    }
+  }
+
+  /// Wipe every network's partition for each of [walletIds], through this
+  /// instance for the same reason as [clearAll].
+  ///
+  /// For the device-wide wipe, which removes every wallet: the caller reads
+  /// the ids from the registry BEFORE the registry is deleted, because a
+  /// partition no id points at can no longer be found by name.
+  Future<void> clearWallets(Iterable<String> walletIds) async {
+    _utxos.clear();
+    _reserved.clear();
+    for (final id in walletIds) {
+      for (final n in SoqNetwork.values) {
+        await _storage.delete(
+          key: WalletRecord.scopeKey(id, 'soq_utxo_set_${n.name}'),
+        );
+      }
     }
   }
 }

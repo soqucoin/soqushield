@@ -23,6 +23,18 @@ final List<String> secureStorageCalls = [];
 /// test can switch the network or wipe the wallet while a write is in flight.
 final Map<String, Completer<void>> secureStorageWriteHolds = {};
 
+/// A read of one of these keys waits on its completer before it answers, so
+/// a test can move a partition while a read is in flight.
+final Map<String, Completer<void>> secureStorageReadHolds = {};
+
+/// The next read of one of these keys fails with a platform error (the key
+/// is removed from the set as it fires), as a keystore read sometimes does.
+final Set<String> secureStorageReadFailures = {};
+
+/// A key here lets that many reads through, then fails the next one once:
+/// for an operation whose SECOND read of a key is the one that fails.
+final Map<String, int> secureStorageReadFailuresAfter = {};
+
 /// The next write to one of these keys is refused with a platform error (the
 /// key is removed from the set as it fires), so a test can fail a storage
 /// write once, mid-operation.
@@ -33,6 +45,9 @@ void installSecureStorageMock() {
   secureStore.clear();
   secureStorageCalls.clear();
   secureStorageWriteHolds.clear();
+  secureStorageReadHolds.clear();
+  secureStorageReadFailures.clear();
+  secureStorageReadFailuresAfter.clear();
   secureStorageWriteFailures.clear();
   TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .setMockMethodCallHandler(
@@ -42,6 +57,19 @@ void installSecureStorageMock() {
       secureStorageCalls.add('${call.method} ${args['key'] ?? ''}'.trim());
       switch (call.method) {
         case 'read':
+          final readHold = secureStorageReadHolds[args['key'] as String];
+          if (readHold != null) await readHold.future;
+          if (secureStorageReadFailures.remove(args['key'] as String)) {
+            throw PlatformException(code: 'test', message: 'read refused');
+          }
+          final after = secureStorageReadFailuresAfter[args['key'] as String];
+          if (after != null) {
+            if (after == 0) {
+              secureStorageReadFailuresAfter.remove(args['key'] as String);
+              throw PlatformException(code: 'test', message: 'read refused');
+            }
+            secureStorageReadFailuresAfter[args['key'] as String] = after - 1;
+          }
           return secureStore[args['key'] as String];
         case 'write':
           if (secureStorageWriteFailures.remove(args['key'] as String)) {

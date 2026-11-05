@@ -70,15 +70,35 @@ class WalletRecord {
         RegExp(r'[\u0000-\u0008\u000E-\u001F\u007F-\u009F'
                 r'\u202A-\u202E\u2066-\u2069]'),
         '');
-    final collapsed = stripped.replaceAll(RegExp(r'\s+'), ' ').trim();
-    if (collapsed.isEmpty) return null;
+    final collapsed = stripped
+        .replaceAll(RegExp(r'\s+'), ' ')
+        // Invisible characters at either END hold no sequence together, so
+        // they go; inside the name they stay, because a zero-width joiner
+        // is part of an emoji or a script's spelling.
+        .replaceAll(_invisibleEnds, '')
+        .trim();
+    if (!_hasVisible(collapsed)) return null;
     // Cut on code points, never on code units: half of a surrogate pair is
     // not a character, and storing one would render as a replacement box.
     final runes = collapsed.runes.toList();
     if (runes.length <= maxNameLength) return collapsed;
     final cut = String.fromCharCodes(runes.take(maxNameLength)).trim();
-    return cut.isEmpty ? null : cut;
+    return _hasVisible(cut) ? cut : null;
   }
+
+  /// Characters that draw nothing: format characters (zero-width space,
+  /// word joiner, joiners, the byte-order mark), separators, variation
+  /// selectors and the Hangul fillers.
+  static const _invisible =
+      r'\p{Cf}\p{Z}\s͏ᅟᅠ឴឵᠋-᠏'
+      r'ㅤ︀-️ﾠ';
+  static final _invisibleEnds =
+      RegExp('^[$_invisible]+|[$_invisible]+\$', unicode: true);
+  static final _onlyInvisible = RegExp('^[$_invisible]*\$', unicode: true);
+
+  /// A name made only of characters that draw nothing renders as a blank
+  /// row, which is exactly what a name must never be.
+  static bool _hasVisible(String s) => !_onlyInvisible.hasMatch(s);
 
   /// The one rule for turning a per-wallet storage key into a real one.
   ///
