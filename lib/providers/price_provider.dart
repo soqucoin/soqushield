@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/fiat_currency.dart';
@@ -86,10 +88,16 @@ final livePriceProvider = Provider<SoqPrice?>((ref) {
   final price = ref.watch(soqPriceProvider).asData?.value;
   if (price == null) return null;
   // Covers both the route's own stale flag and the age backstop.
-  if (!price.isFresh(DateTime.now())) return null;
+  final now = DateTime.now();
+  if (!price.isFresh(now)) return null;
   // A rate carries the currency it was quoted in. Between the owner choosing
   // a new currency and its first answer arriving, the old one is still in the
   // stream — showing it would put a dollar figure behind a euro symbol.
   if (price.currency != ref.watch(fiatCurrencyProvider)) return null;
+  // The clock is not a dependency: nothing would recompute this when the
+  // rate crosses priceMaxAge between polls, and every reader would keep the
+  // cached answer. So the answer carries its own expiry.
+  final expiry = Timer(priceMaxAge - price.ageAt(now), ref.invalidateSelf);
+  ref.onDispose(expiry.cancel);
   return price;
 });

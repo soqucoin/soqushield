@@ -10,9 +10,12 @@
 // The fetcher is a seam so "no request" can be asserted as an absence of
 // calls, not inferred.
 
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:soqushield/models/fiat_currency.dart';
 import 'package:soqushield/models/wallet_keys.dart';
@@ -182,6 +185,67 @@ void main() {
       c.listen(soqPriceProvider, (_, _) {});
       await Future<void>.delayed(Duration.zero);
       expect(c.read(livePriceProvider), isNull);
+    });
+  });
+
+  group('the expiry', () {
+    test('a shown rate is withdrawn when it crosses the age limit, without '
+        'waiting for the next poll', () async {
+      final (c, _) = harness(
+        prefs: const DisplayPrefs(showFiat: true, loaded: true),
+        answer: _rate(
+            age: priceMaxAge - const Duration(milliseconds: 150)),
+      );
+      c.listen(soqPriceProvider, (_, _) {});
+      c.listen(livePriceProvider, (_, _) {});
+      await Future<void>.delayed(Duration.zero);
+      expect(c.read(livePriceProvider), isNotNull, reason: 'fresh for now');
+
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      expect(c.read(livePriceProvider), isNull,
+          reason: 'the clock is not a dependency; the rate carries its own '
+              'expiry');
+    });
+  });
+
+  group('what the route has to say', () {
+    Future<SoqPrice> answer(Map<String, dynamic> body,
+            {FiatCurrency currency = FiatCurrency.usd}) =>
+        fetchSoqPrice(
+          currency: currency,
+          client: MockClient(
+              (_) async => http.Response(jsonEncode(body), 200)),
+        );
+
+    Map<String, dynamic> good() => {
+          'price': 0.00015976,
+          'currency': 'usd',
+          'source': 'CoinGecko',
+          'fetched_at': DateTime.now().toUtc().toIso8601String(),
+          'stale': false,
+        };
+
+    test('a well-formed answer is a rate', () async {
+      final p = await answer(good());
+      expect(p.available, isTrue);
+      expect(p.source, 'CoinGecko');
+    });
+
+    test('a quote in another currency, or in none, is not a dollar rate',
+        () async {
+      expect((await answer(good()..['currency'] = 'btc')).available, isFalse,
+          reason: 'fromCode falls back to USD for a stored preference; the '
+              'wire answer must not');
+      expect((await answer(good()..remove('currency'))).available, isFalse);
+    });
+
+    test('no fetch time, or no boolean stale flag, is no rate', () async {
+      expect((await answer(good()..remove('fetched_at'))).available, isFalse,
+          reason: 'a missing time would reset the age on every poll');
+      expect((await answer(good()..['fetched_at'] = 'soon')).available,
+          isFalse);
+      expect((await answer(good()..remove('stale'))).available, isFalse);
+      expect((await answer(good()..['stale'] = 'false')).available, isFalse);
     });
   });
 
