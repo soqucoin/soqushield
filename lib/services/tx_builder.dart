@@ -145,9 +145,15 @@ class TxBuilder {
         assetType: AssetType.soq,
       );
       if (s == null) {
+        // Selection failed having consumed every spendable SOQ coin, so the
+        // fee it could not meet is the one for THAT input count — not for a
+        // guessed single fee input, which would under-report the shortfall
+        // and send someone topping up by too little.
+        final exhausted = _utxoService.spendableSoq.length;
         throw InsufficientFundsException(
           available: _utxoService.soqBalanceSat / 100000000,
-          requested: feeFor(u.length + 1, outputCount) / 100000000);
+          requested:
+              feeFor(u.length + exhausted, outputCount) / 100000000);
       }
       usdsoqInputs = u;
       soqFeeInputs = s;

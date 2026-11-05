@@ -74,6 +74,32 @@ Future<UtxoService> _wallet(RpcService rpc, int count, int valueSat) async {
   return utxos;
 }
 
+/// Adds [count] confirmed coins of [valueSat] in [asset] to [utxos].
+Future<void> _add(UtxoService utxos, int count, int valueSat, AssetType asset,
+    {int seed = 0}) async {
+  for (var i = 0; i < count; i++) {
+    await utxos.addUtxo(Utxo(
+      txid: (seed + i).toRadixString(16).padLeft(64, '0'),
+      vout: 0,
+      value: valueSat / 100000000,
+      valueSat: valueSat,
+      scriptPubKey: '5120${'bb' * 32}',
+      address: _address,
+      confirmations: 6,
+      assetType: asset,
+    ));
+  }
+}
+
+Future<String> _sendUsdsoq(TxBuilder b, double amount) => b.sendTransaction(
+      toAddress: _address,
+      amountSoq: amount,
+      secretKey: Uint8List(WalletKeys.secKeySize),
+      publicKey: Uint8List(WalletKeys.pubKeySize),
+      myAddress: _address,
+      assetType: AssetType.usdsoq,
+    );
+
 Future<String> _send(TxBuilder b, double amountSoq) => b.sendTransaction(
       toAddress: _address,
       amountSoq: amountSoq,
@@ -176,6 +202,64 @@ void main() {
         throwsA(isA<InsufficientFundsException>()),
       );
     }, timeout: const Timeout(Duration(seconds: 30)));
+  });
+
+  group('a USDSOQ send prices its SOQ fee for the COMBINED input count', () {
+    test('many USDSOQ inputs make the SOQ side select more fee coins',
+        () async {
+      // 3 USDSOQ coins of 0.4 fund a 1.0 USDSOQ send. Those three inputs cost
+      // fee on the SOQ side even though they carry none of their own, so the
+      // SOQ selection has to price 3 + its own count. A callback that dropped
+      // u.length would price one SOQ input (~0.00038 SOQ), take a single
+      // 0.01 coin, and leave the transaction under-funded against its real
+      // size — five inputs cost ~0.0189 SOQ.
+      const soqCoin = 1000000; // 0.01 SOQ
+      String? raw;
+      final rpc = _rpc(broadcast: (h) => raw = h);
+      final utxos = UtxoService(rpc, network: SoqNetwork.mainnet);
+      await _add(utxos, 3, 40000000, AssetType.usdsoq);
+      await _add(utxos, 20, soqCoin, AssetType.soq, seed: 100);
+
+      await _sendUsdsoq(TxBuilder(rpc, utxos), 1.0);
+      expect(raw, isNotNull);
+
+      final tx = TxParser.parse(raw!);
+      final soqFeeInputs = tx.inputs.length - 3;
+      expect(soqFeeInputs, greaterThan(1),
+          reason: 'one SOQ coin of 0.01 cannot pay the fee for a transaction '
+              'that already carries three USDSOQ inputs');
+
+      // The fee actually paid covers the REAL input count, and the USDSOQ
+      // value is CONSERVED: the fee comes off the SOQ side only, never out of
+      // the amount the recipient was promised.
+      final inSat = 3 * 40000000 + soqFeeInputs * soqCoin;
+      final outSat = tx.outputs.fold<int>(0, (sum, o) => sum + o.valueSat);
+      expect(inSat - outSat,
+          greaterThanOrEqualTo(
+              _feeAtFloor(tx.inputs.length, tx.outputs.length)),
+          reason: 'the SOQ side must fund the COMBINED input count');
+      expect(tx.outputs.first.valueSat, 100000000,
+          reason: 'the USDSOQ recipient gets exactly the amount approved');
+    });
+
+    test('the refusal prices the input count that actually failed', () async {
+      // One USDSOQ input plus two SOQ coins of 0.005: the three-input fee is
+      // above what the SOQ side holds, so selection fails. The message must
+      // name the fee for three inputs, not for a guessed one.
+      final rpc = _rpc();
+      final utxos = UtxoService(rpc, network: SoqNetwork.mainnet);
+      await _add(utxos, 1, 100000000, AssetType.usdsoq);
+      await _add(utxos, 2, 500000, AssetType.soq, seed: 100);
+
+      await expectLater(
+        _sendUsdsoq(TxBuilder(rpc, utxos), 1.0),
+        throwsA(isA<InsufficientFundsException>().having(
+          (e) => e.requested,
+          'requested',
+          closeTo(_feeAtFloor(3, 3) / 100000000, 0.0000001),
+        )),
+      );
+    });
   });
 
   group('UtxoService.selectUtxosForVariableFee', () {
