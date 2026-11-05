@@ -209,4 +209,44 @@ void main() {
       expect(err.toString(), contains('test error'));
     });
   });
+
+  group('the v2 key is Argon2id at the profile it claims', () {
+    // ⛔ A KNOWN-ANSWER TEST, not a round trip. Round-tripping through one
+    // implementation still passes if the parameters are weakened or the
+    // algorithm swapped, which is exactly the failure worth catching: it
+    // would silently halve the cost of cracking a stolen backup, and it
+    // would break every v2 file already written.
+    //
+    // The vector below was produced by argon2-cffi 25.1.0 (the reference C
+    // library), independently of pointycastle:
+    //
+    //   hash_secret_raw(secret=b'correct horse battery staple',
+    //                   salt=bytes(range(32)), time_cost=3,
+    //                   memory_cost=65536, parallelism=1, hash_len=32,
+    //                   type=Type.ID, version=19)
+    test('matches a vector from the reference C implementation', () {
+      final salt = Uint8List.fromList(List.generate(32, (i) => i));
+      final key = deriveBackupKey(
+          'correct horse battery staple', salt, BackupService.versionArgon2id);
+      expect(
+        key.map((b) => b.toRadixString(16).padLeft(2, '0')).join(),
+        '6ed12d7d594a6ae56c7ad1725982ae0d41317bd2b239dd1e0916d913d4da0757',
+      );
+    });
+
+    test('the profile constants are the ones OWASP recommends', () {
+      expect(BackupService.argonMemoryKiB, 64 * 1024);
+      expect(BackupService.argonIterations, 3);
+      expect(BackupService.argonLanes, 1);
+      expect(BackupService.keyLength, 32);
+    });
+
+    test('a v1 file still derives under PBKDF2, not Argon2id', () {
+      final salt = Uint8List.fromList(List.generate(32, (i) => i));
+      final v1 = deriveBackupKey('x' * 12, salt, BackupService.versionPbkdf2);
+      final v2 = deriveBackupKey('x' * 12, salt, BackupService.versionArgon2id);
+      expect(v1, isNot(equals(v2)),
+          reason: 'the version byte must actually select the KDF');
+    });
+  });
 }

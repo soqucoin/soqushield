@@ -236,7 +236,8 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
                   style: TextStyle(
                       color: Instrument.faint, fontSize: 12, height: 1.5)),
               const SizedBox(height: 16),
-              _pwField(passwordCtrl, 'Password (8+ chars)'),
+              _pwField(passwordCtrl,
+                  'Password (${BackupService.minPasswordLength}+ chars)'),
               const SizedBox(height: 8),
               _pwField(confirmCtrl, 'Confirm password'),
             ],
