@@ -164,6 +164,32 @@ void main() {
       expect(wallets.single.name, 'Wallet', reason: 'a default, not a crash');
     });
 
+    test('a row whose createdAt is a number keeps the healthy rows', () async {
+      // The field was read with a cast, so a number here threw out of
+      // fromJson, into listWallets' catch, and emptied the WHOLE registry.
+      // The next putWallet would then have written over every wallet in it.
+      secureStore['soq_wallets_v1'] = jsonEncode([
+        {
+          'id': WalletRecord.primaryId,
+          'address': _address,
+          'network': 'mainnet',
+          'createdAt': '2026-10-13T00:00:00.000',
+        },
+        {
+          'id': 'w2',
+          'address': _other,
+          'network': 'mainnet',
+          'createdAt': 123,
+        },
+      ]);
+
+      final wallets = await store.listWallets();
+      expect(wallets.map((w) => w.id), [WalletRecord.primaryId, 'w2'],
+          reason: 'the malformed timestamp costs the row nothing else');
+      expect(wallets.first.createdAt, DateTime.parse('2026-10-13T00:00:00.000'),
+          reason: 'the healthy row keeps its own date');
+    });
+
     test('an adoption rebuilds an entry after the registry is lost', () async {
       seedLegacyWallet();
       await store.adoptExistingWallet();
@@ -171,6 +197,72 @@ void main() {
 
       await store.adoptExistingWallet();
       expect((await store.listWallets()).single.id, WalletRecord.primaryId);
+    });
+  });
+
+  group('an adoption that was cut short finishes on the next boot', () {
+    test('a registry row with no pointer still opens a wallet', () async {
+      seedLegacyWallet();
+      // Exactly the state a crash between the two writes leaves behind.
+      await store.putWallet(WalletRecord(
+        id: WalletRecord.primaryId,
+        name: 'Main wallet',
+        address: _address,
+        network: SoqNetwork.mainnet,
+        createdAt: DateTime(2026, 10, 13),
+      ));
+      expect(await store.activeWalletId(), isNull, reason: 'the cut-short state');
+
+      await store.adoptExistingWallet();
+      expect(await store.activeWalletId(), WalletRecord.primaryId);
+    });
+
+    test('the repair keeps the row that is already there', () async {
+      seedLegacyWallet();
+      await store.putWallet(WalletRecord(
+        id: WalletRecord.primaryId,
+        name: 'The name the owner gave it',
+        address: _address,
+        network: SoqNetwork.mainnet,
+        createdAt: DateTime(2026, 10, 13),
+      ));
+
+      await store.adoptExistingWallet(name: 'Main wallet');
+      final row = (await store.listWallets()).single;
+      expect(row.name, 'The name the owner gave it');
+      expect(row.createdAt, DateTime(2026, 10, 13));
+    });
+
+    test('a pointer at a wallet that is gone is repaired', () async {
+      seedLegacyWallet();
+      await store.adoptExistingWallet();
+      secureStore['soq_active_wallet_v1'] = 'a-wallet-that-was-removed';
+
+      await store.adoptExistingWallet();
+      expect(await store.activeWalletId(), WalletRecord.primaryId);
+    });
+
+    test("a pointer at a wallet that exists is the owner's choice", () async {
+      seedLegacyWallet();
+      await store.adoptExistingWallet();
+      await store.putWallet(WalletRecord(
+        id: 'w2',
+        name: 'Second',
+        address: _other,
+        network: SoqNetwork.mainnet,
+        createdAt: DateTime(2026, 11, 1),
+      ));
+      await store.setActiveWallet('w2');
+
+      await store.adoptExistingWallet();
+      expect(await store.activeWalletId(), 'w2',
+          reason: 'adoption does not reach over and re-open the primary');
+    });
+
+    test('no wallet on the device means no registry row at all', () async {
+      await store.adoptExistingWallet();
+      expect(await store.listWallets(), isEmpty);
+      expect(await store.activeWalletId(), isNull);
     });
   });
 

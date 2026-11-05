@@ -184,10 +184,18 @@ class SecureStorageService {
       if (raw == null || raw.isEmpty) return [];
       final decoded = json.decode(raw);
       if (decoded is! List) return [];
-      return decoded
-          .map(WalletRecord.fromJson)
-          .whereType<WalletRecord>()
-          .toList();
+      // Row by row: a single entry that cannot be read is dropped, and the
+      // wallets either side of it still reach the caller.
+      final wallets = <WalletRecord>[];
+      for (final row in decoded) {
+        try {
+          final record = WalletRecord.fromJson(row);
+          if (record != null) wallets.add(record);
+        } catch (e) {
+          debugPrint('SecureStorage: dropping an unreadable registry row: $e');
+        }
+      }
+      return wallets;
     } catch (e) {
       debugPrint('SecureStorage: registry unreadable, treating as empty: $e');
       return const [];
@@ -237,30 +245,51 @@ class SecureStorageService {
 
   /// Bring a pre-registry wallet into the registry, moving nothing.
   ///
-  /// Call on boot. It is a no-op when the registry already has entries, or
-  /// when there is no wallet on the device at all. The adopted wallet keeps
-  /// the original keys, so an interrupted run leaves the wallet exactly as it
-  /// was and the next boot simply tries again.
+  /// Call on boot. It is a no-op when there is no wallet on the device, and
+  /// when the registry already names one and a wallet is already open.
+  ///
+  /// ⛔ RESUMABLE. Adoption is two writes: the registry row, then the
+  /// pointer at the open wallet. Stopping between them used to be permanent
+  /// — the next run saw a non-empty registry, returned early, and left the
+  /// pointer null forever. Each write is therefore checked on its own, so a
+  /// run that was cut short finishes on the next boot.
+  ///
+  /// The adopted wallet keeps the original keys, so an interrupted run
+  /// leaves the wallet itself exactly as it was.
   Future<void> adoptExistingWallet({String name = 'Main wallet'}) async {
-    if ((await listWallets()).isNotEmpty) return;
     if (!await hasWallet()) return;
 
-    final address = await readAddress();
-    if (address == null || address.isEmpty) return;
+    var wallets = await listWallets();
 
-    final created = DateTime.tryParse(
-            await _storage.read(key: _keyCreatedAt) ?? '') ??
-        DateTime.now();
+    if (wallets.isEmpty) {
+      final address = await readAddress();
+      if (address == null || address.isEmpty) return;
 
-    await putWallet(WalletRecord(
-      id: WalletRecord.primaryId,
-      name: name,
-      address: address,
-      network: await readNetwork(),
-      createdAt: created,
-    ));
-    await _storage.write(
-        key: _keyActiveWallet, value: WalletRecord.primaryId);
+      final created = DateTime.tryParse(
+              await _storage.read(key: _keyCreatedAt) ?? '') ??
+          DateTime.now();
+
+      await putWallet(WalletRecord(
+        id: WalletRecord.primaryId,
+        name: name,
+        address: address,
+        network: await readNetwork(),
+        createdAt: created,
+      ));
+      wallets = await listWallets();
+    }
+
+    // A pointer that names a wallet still in the registry is the owner's
+    // own choice of which wallet is open; leave it alone. Only a missing or
+    // dangling one is repaired, and only to a wallet that exists.
+    final pointer = await _storage.read(key: _keyActiveWallet);
+    final valid = pointer != null && wallets.any((w) => w.id == pointer);
+    if (!valid && wallets.isNotEmpty) {
+      final target = wallets.any((w) => w.isPrimary)
+          ? WalletRecord.primaryId
+          : wallets.first.id;
+      await _storage.write(key: _keyActiveWallet, value: target);
+    }
   }
 
   // ── Backup Management ──

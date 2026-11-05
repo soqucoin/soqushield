@@ -68,6 +68,11 @@ class WalletRecord {
   /// Null when the entry is unusable — a registry that has been corrupted
   /// must not take the wallet list down with it, and a row that cannot be
   /// read is better dropped than guessed at.
+  ///
+  /// ⛔ NEVER THROWS. It returns null for anything it cannot read, field by
+  /// field. A throw from here escapes into the caller's catch and empties
+  /// the whole list, which turns one unreadable row into every wallet
+  /// vanishing from the registry.
   static WalletRecord? fromJson(Object? raw) {
     if (raw is! Map) return null;
     final id = raw['id'];
@@ -84,8 +89,13 @@ class WalletRecord {
         (n) => n.name == raw['network'],
         orElse: () => SoqNetwork.mainnet,
       ),
-      createdAt:
-          DateTime.tryParse(raw['createdAt'] as String? ?? '') ?? DateTime(2026),
+      // Type-checked, not cast: a row whose createdAt is a number would
+      // throw here, and the caller catches around the WHOLE registry — so
+      // one bad row would hide every healthy wallet and the next write
+      // would overwrite them.
+      createdAt: raw['createdAt'] is String
+          ? DateTime.tryParse(raw['createdAt'] as String) ?? DateTime(2026)
+          : DateTime(2026),
     );
   }
 
