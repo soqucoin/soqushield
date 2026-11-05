@@ -121,7 +121,8 @@ class SoqPrice {
 ///
 /// Never throws. Every failure shape — no network, a timeout, a 5xx, an error
 /// page, a body in an unexpected shape, a non-positive rate, a rate quoted in
-/// a currency other than the one asked for — returns [SoqPrice.unavailable],
+/// a currency other than the one asked for or in none, a missing fetch time
+/// or stale flag — returns [SoqPrice.unavailable],
 /// because the caller's only two states are "show the figure" and "don't".
 Future<SoqPrice> fetchSoqPrice({
   http.Client? client,
@@ -149,9 +150,24 @@ Future<SoqPrice> fetchSoqPrice({
     // ⛔ The route states what it quoted in. If that is not what was asked
     // for, the figure is withheld rather than shown under the wrong symbol:
     // a dollar number behind a euro sign is worse than no number.
-    final quoted = FiatCurrency.fromCode(body['currency'] as String?);
-    if (quoted != currency) {
-      debugPrint('PRICE: asked ${currency.code}, got ${quoted.code}');
+    // Compared as the route wrote it, not through FiatCurrency.fromCode:
+    // that falls back to USD for a stored preference, so 'btc' or a missing
+    // code would pass for dollars.
+    final quoted = body['currency'];
+    if (quoted is! String || quoted.trim().toLowerCase() != currency.code) {
+      debugPrint('PRICE: asked ${currency.code}, got $quoted');
+      return SoqPrice.unavailable(now, currency: currency);
+    }
+
+    // The age the owner is shown, and the backstop that withdraws a quiet
+    // rate, both run from the route's fetch time, and the route's own stale
+    // flag is decisive. Without a fetch time the rate would look fresh on
+    // every poll, and a non-boolean flag would read as "not stale": either
+    // one missing makes the answer unusable.
+    final fetchedAt = _time(body['fetched_at']);
+    final stale = body['stale'];
+    if (fetchedAt == null || stale is! bool) {
+      debugPrint('PRICE: no usable fetched_at or stale flag');
       return SoqPrice.unavailable(now, currency: currency);
     }
 
@@ -161,11 +177,8 @@ Future<SoqPrice> fetchSoqPrice({
       amount: amount,
       average24h: _positiveDouble(body['average_24h']),
       source: (body['source'] as String?)?.trim(),
-      // A route that sends no fetch time is treated as having fetched it now;
-      // its own stale flag still governs, and the age backstop still applies
-      // from this moment on.
-      fetchedAt: _time(body['fetched_at']) ?? now,
-      stale: body['stale'] == true,
+      fetchedAt: fetchedAt,
+      stale: stale,
     );
   } catch (e) {
     debugPrint('PRICE: $e');
