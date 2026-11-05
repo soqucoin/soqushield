@@ -6,9 +6,9 @@
 //
 // Copyright 2026 Soqucoin Labs Inc.
 
-import 'dart:io';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -95,7 +95,8 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
                   // key, coin control) that the lite build dropped, and a
                   // scope pin asserts that exact header never returns. This
                   // section is about what the screen shows, not about
-                  // confidential transactions.
+                  // confidential transactions. The web has no capture
+                  // control to offer, so that row is left out there.
                   _section('PRIVACY & DISPLAY'),
                   _toggleTile(
                       Icons.visibility_off_outlined,
@@ -105,8 +106,10 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
                       (v) => ref
                           .read(displayPrefsProvider.notifier)
                           .setHideBalances(v)),
-                  _screenCaptureTile(prefs),
-                  _noteTile(_captureNote),
+                  if (!kIsWeb) ...[
+                    _screenCaptureTile(prefs),
+                    _noteTile(_captureNote),
+                  ],
 
                   // ── BACKUP & KEYS ──
                   _section('BACKUP & KEYS'),
@@ -374,6 +377,10 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
               // The auto-lock state first, so no timeout fires during the
               // wipe's awaits and writes a setting back after the delete.
               ref.read(sessionProvider.notifier).resetToDefaults();
+              // Capture back to protected, so the next wallet does not
+              // inherit this one's permission. Its stored key goes with
+              // the wipe below.
+              ref.read(displayPrefsProvider.notifier).resetToDefaults();
               await ref.read(walletProvider.notifier).wipeWallet();
               final authService = ref.read(authServiceProvider);
               await authService.clearAccount();
@@ -618,8 +625,12 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
       );
 
   /// What the capture toggle actually does, per platform — the two are not
-  /// the same protection and the copy must not pretend otherwise.
-  String get _captureNote => Platform.isIOS
+  /// the same protection and the copy must not pretend otherwise. Read
+  /// through defaultTargetPlatform, which unlike dart:io's Platform answers
+  /// on the web too.
+  bool get _isIOS => defaultTargetPlatform == TargetPlatform.iOS;
+
+  String get _captureNote => _isIOS
       ? 'iOS does not let any app block screenshots. This controls the blur '
           'over the app in the app switcher. Your recovery phrase stays '
           'covered either way.'
@@ -629,14 +640,31 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
 
   Widget _screenCaptureTile(DisplayPrefs prefs) => _toggleTile(
         Icons.screenshot_monitor_outlined,
-        Platform.isIOS ? 'Allow app-switcher preview' : 'Allow screenshots',
-        Platform.isIOS
+        _isIOS ? 'Allow app-switcher preview' : 'Allow screenshots',
+        _isIOS
             ? 'Show the app unblurred when switching apps'
             : 'Screenshots, screen recording and casting',
         prefs.allowScreenCapture,
-        (v) =>
-            ref.read(displayPrefsProvider.notifier).setAllowScreenCapture(v),
+        _setCapture,
       );
+
+  /// A change that did not take, or was not stored, is said out loud with
+  /// a retry: the switch shows what the window does, and the owner has to
+  /// know when the stored choice differs from it.
+  Future<void> _setCapture(bool allow) async {
+    final ok = await ref
+        .read(displayPrefsProvider.notifier)
+        .setAllowScreenCapture(allow);
+    if (ok || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: const Text('The screenshot setting was not saved.',
+          style: TextStyle(color: Instrument.readout, fontSize: 13)),
+      backgroundColor: Instrument.void2,
+      behavior: SnackBarBehavior.floating,
+      action: SnackBarAction(
+          label: 'RETRY', onPressed: () => _setCapture(allow)),
+    ));
+  }
 
   Widget _timeoutTile(SessionConfig session) => _rowFrame(
         child: Row(
