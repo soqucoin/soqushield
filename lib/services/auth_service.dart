@@ -1,7 +1,31 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:local_auth/error_codes.dart' as auth_error;
 import 'package:local_auth/local_auth.dart';
 import 'secure_storage_service.dart' show kSharedSecureStorage;
+
+/// How an authentication attempt ended.
+///
+/// The distinction that matters is [unavailable]: the OS refusing to run the
+/// check AT ALL is not the user getting it wrong, and must not be counted as
+/// a failed attempt. The platform's own biometric lockout arrives this way —
+/// counting it would stack the app's backoff on top of the OS's, punishing
+/// someone twice for one mistake and pushing an owner toward a 30-minute wait
+/// they cannot clear by presenting the right finger.
+enum AuthOutcome {
+  /// The user authenticated.
+  success,
+
+  /// The check ran and did not succeed — a wrong finger/face, or the user
+  /// dismissing the prompt. local_auth reports both as a plain `false`, so
+  /// they cannot be told apart here.
+  failed,
+
+  /// The check could not run: the OS biometric API is locked out, no
+  /// credential is enrolled, or the platform refused. Never a failed attempt.
+  unavailable,
+}
 
 /// Manages local account persistence and biometric authentication.
 /// All data stays on-device in encrypted storage.
@@ -101,19 +125,43 @@ class AuthService {
   }
 
   /// Trigger Face ID / Touch ID. Returns true on success.
-  Future<bool> authenticateWithBiometrics() async {
-    if (kIsWeb) return true; // Skip on web
+  ///
+  /// The boolean form, for the call sites that only gate an action (a send, a
+  /// seed reveal, the biometric toggle) and have no backoff to protect. The
+  /// lock screen uses [authenticate] instead, because it has to tell a wrong
+  /// finger apart from the OS declining to ask.
+  Future<bool> authenticateWithBiometrics() async =>
+      (await authenticate()) == AuthOutcome.success;
+
+  /// Trigger Face ID / Touch ID, reporting HOW it ended.
+  Future<AuthOutcome> authenticate() async {
+    if (kIsWeb) return AuthOutcome.success; // Skip on web
     try {
-      return await _localAuth.authenticate(
+      final ok = await _localAuth.authenticate(
         localizedReason: 'Authenticate to access SoquShield',
         options: const AuthenticationOptions(
           stickyAuth: true,
           biometricOnly: false, // Allow passcode fallback
         ),
       );
+      return ok ? AuthOutcome.success : AuthOutcome.failed;
+    } on PlatformException catch (e) {
+      debugPrint('Biometric auth error: ${e.code}');
+      // The OS could not run the check. Its own lockout already makes the
+      // user wait; the app must not add a second, longer wait on top.
+      const cannotRun = {
+        auth_error.lockedOut,
+        auth_error.permanentlyLockedOut,
+        auth_error.notAvailable,
+        auth_error.notEnrolled,
+        auth_error.passcodeNotSet,
+      };
+      return cannotRun.contains(e.code)
+          ? AuthOutcome.unavailable
+          : AuthOutcome.failed;
     } catch (e) {
       debugPrint('Biometric auth error: $e');
-      return false;
+      return AuthOutcome.failed;
     }
   }
 

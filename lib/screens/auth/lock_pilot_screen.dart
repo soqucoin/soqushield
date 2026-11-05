@@ -18,6 +18,7 @@ import '../../theme/instrument.dart';
 import '../../theme/figures.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/session_provider.dart';
+import '../../services/auth_service.dart' show AuthOutcome;
 
 class LockPilotScreen extends ConsumerStatefulWidget {
   const LockPilotScreen({super.key});
@@ -140,29 +141,42 @@ class _LockPilotScreenState extends ConsumerState<LockPilotScreen>
       return;
     }
 
-    final success =
-        await session.whileSystemUi(service.authenticateWithBiometrics);
+    final outcome = await session.whileSystemUi(service.authenticate);
     if (attempt != _attempt) {
-      debugPrint('LOCK: stale result $success for attempt $attempt ignored');
+      debugPrint('LOCK: stale result $outcome for attempt $attempt ignored');
       return;
     }
     _slowTimer?.cancel();
-    debugPrint('LOCK: authenticate result $success');
+    debugPrint('LOCK: authenticate result $outcome');
     if (!mounted) return;
 
-    if (success) {
-      await session.resetFailedAttempts();
-      HapticFeedback.mediumImpact();
-      ref.read(authProvider.notifier).unlock();
-      if (mounted) context.go('/');
-    } else {
-      await session.recordFailedAttempt();
-      if (!mounted) return;
-      setState(() {
-        _authenticating = false;
-        _failed = true;
-      });
-      if (session.isInLockout) _startLockoutTicker();
+    switch (outcome) {
+      case AuthOutcome.success:
+        await session.resetFailedAttempts();
+        HapticFeedback.mediumImpact();
+        ref.read(authProvider.notifier).unlock();
+        if (mounted) context.go('/');
+
+      case AuthOutcome.unavailable:
+        // The OS declined to run the check — its own biometric lockout, or no
+        // credential enrolled. That is not the owner getting it wrong, so it
+        // burns no attempt: stacking this app's backoff on the platform's
+        // would make an owner wait twice for one mistake, and the second wait
+        // cannot be cleared by presenting the right finger. Show the same
+        // enrollment guidance the no-screen-lock case gets.
+        setState(() {
+          _authenticating = false;
+          _noDeviceAuth = true;
+        });
+
+      case AuthOutcome.failed:
+        await session.recordFailedAttempt();
+        if (!mounted) return;
+        setState(() {
+          _authenticating = false;
+          _failed = true;
+        });
+        if (session.isInLockout) _startLockoutTicker();
     }
   }
 
