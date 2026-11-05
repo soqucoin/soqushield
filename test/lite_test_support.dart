@@ -12,7 +12,6 @@ import 'package:soqushield/providers/auth_provider.dart';
 import 'package:soqushield/providers/session_provider.dart';
 import 'package:soqushield/providers/wallet_provider.dart';
 import 'package:soqushield/services/auth_service.dart';
-import 'package:soqushield/services/secure_storage_service.dart';
 
 /// The backing map of the mocked secure storage. Reset by [installSecureStorageMock].
 final Map<String, String> secureStore = {};
@@ -43,7 +42,6 @@ final Set<String> secureStorageWriteFailures = {};
 
 /// Route the flutter_secure_storage channel to [secureStore].
 void installSecureStorageMock() {
-  SecureStorageService.resetRegistryQueue();
   secureStore.clear();
   secureStorageCalls.clear();
   secureStorageWriteHolds.clear();
