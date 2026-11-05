@@ -14,6 +14,8 @@ import 'package:soqushield/providers/wallet_provider.dart';
 import 'package:soqushield/services/auth_service.dart';
 import 'package:soqushield/models/fiat_currency.dart';
 import 'package:soqushield/providers/display_prefs_provider.dart';
+import 'package:soqushield/providers/price_provider.dart';
+import 'package:soqushield/services/price_service.dart';
 
 /// The backing map of the mocked secure storage. Reset by [installSecureStorageMock].
 final Map<String, String> secureStore = {};
@@ -201,3 +203,9 @@ class FixedDisplayPrefs extends Notifier<DisplayPrefs>
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
 }
+
+/// No rate at all: the screens read exactly as they do with the money line
+/// off. Every widget test that is not ABOUT the money figure uses this, so a
+/// stray poll cannot leave a pending timer behind.
+final quietPrice = soqPriceProvider.overrideWith(
+    (ref) => Stream.value(SoqPrice.unavailable(DateTime.now())));
