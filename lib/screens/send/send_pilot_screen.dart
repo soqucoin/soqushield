@@ -712,13 +712,15 @@ class _SendPilotScreenState extends ConsumerState<SendPilotScreen>
     // The source and the age ride with the figure, as on Home: this screen
     // has no other provenance label. The slot holds both lines.
     return SizedBox(
-      height: 34,
+      // Two lines: the figure, and the source at no less than
+      // kMinAttributionSize.
+      height: 36,
       child: Center(
         child: (value == null || amount <= 0)
             ? const SizedBox.shrink()
             : InstrumentFiat(
                 value: fmtMoney(value, currency),
-                source: price?.source,
+                source: price?.attribution,
                 age: price?.ageAt(DateTime.now()),
                 size: 12,
               ),

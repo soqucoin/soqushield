@@ -661,6 +661,10 @@ class InstrumentEye extends StatelessWidget {
   }
 }
 
+/// The smallest size the source line under a money figure is drawn at.
+/// CoinGecko's terms ask for its attribution in at least 10 points.
+const double kMinAttributionSize = 10;
+
 /// A money figure, with where the rate came from and how old it is.
 ///
 /// ⛔ NO CHANGE FIGURE AND NO CHART. This wallet shows what a holding is worth
@@ -734,7 +738,9 @@ class InstrumentFiat extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               color: Instrument.faint,
-              fontSize: size * 0.72,
+              // Never under 10: the source line carries the data provider's
+              // attribution, which its terms require to stay legible.
+              fontSize: math.max(kMinAttributionSize, size * 0.72),
               letterSpacing: size * 0.02,
             ),
           ),

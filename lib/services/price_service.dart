@@ -28,7 +28,7 @@ import '../models/fiat_currency.dart';
 const String kPriceApiHost = 'mainnet-api.soqu.org';
 
 /// The cached-rate route.
-const String kPricePath = '/api/v1/price';
+const String kPricePath = '/api/v2/price';
 
 /// How often the poll asks for a fresh rate.
 const Duration pricePollPeriod = Duration(minutes: 5);
@@ -68,6 +68,17 @@ class SoqPrice {
   /// a number on a wallet screen is never presented as the wallet's own
   /// opinion of what their coins are worth.
   final String? source;
+
+  /// The source as the owner reads it beside the figure.
+  ///
+  /// CoinGecko's API terms (clause 4.4) ask for the words "Powered by
+  /// CoinGecko" wherever its data is shown, so a CoinGecko rate carries the
+  /// full phrase. Any other source is shown as the route wrote it.
+  String? get attribution {
+    final s = source;
+    if (s == null || s.isEmpty) return null;
+    return s.toLowerCase() == 'coingecko' ? 'Powered by CoinGecko' : s;
+  }
 
   /// When the ROUTE fetched the rate, not when this app received it. The age
   /// the owner is shown is measured from here, because that is the age of the

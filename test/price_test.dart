@@ -13,6 +13,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -262,6 +263,27 @@ void main() {
       // It rides the model because the route sends it; nothing renders it.
       final p = _rate();
       expect(p.average24h, isNotNull);
+    });
+
+    test('a CoinGecko rate is attributed in the words its terms ask for', () {
+      expect(_rate().attribution, 'Powered by CoinGecko');
+      expect(SoqPrice.unavailable(DateTime.now()).attribution, isNull);
+    });
+
+    test('the rate is read from the v2 route', () {
+      expect(kPricePath, '/api/v2/price');
+    });
+
+    testWidgets('the source line is never drawn under 10 points',
+        (t) async {
+      for (final size in [11.0, 12.0, 13.0, 30.0]) {
+        await t.pumpWidget(MaterialApp(
+            home: InstrumentFiat(
+                value: r'$1.60', source: 'Powered by CoinGecko', size: size)));
+        final line = t.widget<Text>(find.text('Powered by CoinGecko'));
+        expect(line.style!.fontSize, greaterThanOrEqualTo(kMinAttributionSize),
+            reason: 'at size $size');
+      }
     });
 
     test('the age reads coarsely', () {

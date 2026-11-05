@@ -356,7 +356,9 @@ class _HomePilotScreenState extends ConsumerState<HomePilotScreen>
     final value = price?.valueOf(soq);
 
     return SizedBox(
-      height: 34,
+      // Two lines: the figure, and the source at no less than
+      // kMinAttributionSize.
+      height: 36,
       child: Center(
         child: value == null
             ? const SizedBox.shrink()
@@ -364,7 +366,7 @@ class _HomePilotScreenState extends ConsumerState<HomePilotScreen>
                 value: masked
                     ? maskedMoney(currency)
                     : fmtMoney(value, currency),
-                source: price?.source,
+                source: price?.attribution,
                 age: price?.ageAt(DateTime.now()),
               ),
       ),

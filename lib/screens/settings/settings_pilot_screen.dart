@@ -644,7 +644,9 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
   String get _fiatNote =>
       'SoquShield asks Soqucoin for a cached rate. It never contacts a market '
       'site, and the request carries no address and no balance. Amounts, fees '
-      'and coin selection are always in SOQ.';
+      'and coin selection are always in SOQ. The rate is CoinGecko\u2019s data, '
+      'shown as published. Neither SoquShield nor CoinGecko is responsible '
+      'for its accuracy.';
 
   /// What the capture toggle actually does, per platform — the two are not
   /// the same protection and the copy must not pretend otherwise. Read

@@ -149,7 +149,7 @@ class _ActivityPilotScreenState extends ConsumerState<ActivityPilotScreen> {
   /// use, where it came from and how old it is. The rows carry only the
   /// figure, so the provenance is stated once, here.
   Widget _fiatCaveat(SoqPrice price) {
-    final source = price.source;
+    final source = price.attribution;
     final provenance = [
       if (source != null && source.isNotEmpty) source,
       InstrumentFiat.ageLabel(price.ageAt(DateTime.now())),
