@@ -156,8 +156,11 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
 
   Future<void> _doExport(BuildContext ctx, String password, String confirm,
       Rect? shareOrigin) async {
-    if (password.length < 8) {
-      _showSnack('Password must be at least 8 characters');
+    // One rule, from the service that enforces it, so this check and
+    // BackupService.exportBackup cannot drift apart.
+    if (password.length < BackupService.minPasswordLength) {
+      _showSnack('Password must be at least '
+          '${BackupService.minPasswordLength} characters');
       return;
     }
     if (password != confirm) {
