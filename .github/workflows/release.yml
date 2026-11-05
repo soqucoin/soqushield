@@ -1,0 +1,272 @@
+# Release. A merge to main builds the app and uploads it to TestFlight and to the Play internal
+# track (the "testing" environment). A tag v<version>-build<build> on main promotes that build to
+# production (the "production" environment, which carries the approval step in the repository
+# settings). Every credential is an Actions secret the account owner sets; nothing here reads key
+# material from the tree, and a pull request from a fork runs with no secret at all.
+#
+# Secrets, in both environments:
+#   ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8   an App Store Connect API key (App Manager); the .p8 as text
+#   PLAY_SERVICE_ACCOUNT_JSON               the Play Console service account's JSON, as text
+# Secrets, in "testing" only:
+#   ANDROID_UPLOAD_KEYSTORE_B64             the Play upload keystore, base64 (alias soqushield)
+#   ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_PASSWORD
+#
+# iOS signing is Xcode's automatic cloud signing with the API key, so no certificate is stored.
+# The archive is checked for simulator slices (fastlane upload) before it is uploaded.
+#
+# Before a production tag: the tagged commit is on main; its testing upload has finished and Apple
+# has processed the build (the iOS job waits up to 40 minutes for that); the App Store version for
+# the marketing version exists (the iOS metadata lane creates it from the listing text, or it is
+# created in App Store Connect); the release notes are written. The tag names pubspec's version
+# and build, v<version>-build<build>.
+name: Release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+  queue: max
+
+env:
+  FLUTTER_VERSION: "3.41.1"
+  FASTLANE_VERSION: "2.236.1"
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+      build: ${{ steps.read.outputs.build }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: read
+        run: |
+          set -euo pipefail
+          line=$(sed -n 's/^version:[[:space:]]*//p' pubspec.yaml | head -1)
+          version=${line%%+*}
+          build=${line##*+}
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+          echo "pubspec: $version build $build"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            if [ "$GITHUB_REF_NAME" != "v${version}-build${build}" ]; then
+              echo "the tag $GITHUB_REF_NAME does not name pubspec's v${version}-build${build}"
+              exit 1
+            fi
+            git fetch --no-tags origin main:refs/remotes/origin/main
+            if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
+              echo "the tagged commit $GITHUB_SHA is not on main; tag a merged commit"
+              exit 1
+            fi
+          fi
+
+  android-internal:
+    if: github.ref_type == 'branch'
+    needs: version
+    runs-on: ubuntu-latest
+    environment: testing
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Signing material and the Play credential, from the secrets
+        env:
+          ANDROID_UPLOAD_KEYSTORE_B64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_B64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s' "$ANDROID_UPLOAD_KEYSTORE_B64" | base64 -d > android/app/upload-keystore.jks
+          # Gradle reads key.properties with Properties.load, which treats a backslash as an escape
+          # and drops leading whitespace, so the two passwords are written in that file's escaping.
+          python3 - <<'PY'
+          import os
+          def esc(v):
+              v = v.replace("\\", "\\\\")
+              return "\\" + v if v[:1] in (" ", "\t") else v
+          with open("android/key.properties", "w", encoding="utf-8") as f:
+              f.write("storeFile=upload-keystore.jks\n")
+              f.write("storePassword=" + esc(os.environ["ANDROID_KEYSTORE_PASSWORD"]) + "\n")
+              f.write("keyAlias=soqushield\n")
+              f.write("keyPassword=" + esc(os.environ["ANDROID_KEY_PASSWORD"]) + "\n")
+          PY
+          printf '%s' "$PLAY_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/play-service-account.json"
+      - name: Is this build number already on Google Play?
+        id: present
+        env:
+          BUILD: ${{ needs.version.outputs.build }}
+          PLAY_JSON_KEY_PATH: ${{ runner.temp }}/play-service-account.json
+        run: |
+          set -euo pipefail
+          top=$(python3 scripts/play_status.py --max-code)
+          echo "highest version code on any track: $top; this checkout: $BUILD"
+          if [ "$top" -ge "$BUILD" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "build $BUILD is already on Google Play; nothing to upload. Raise the build number in pubspec.yaml for the next upload."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.present.outputs.skip != 'true'
+        run: sudo gem install fastlane -N -v "$FASTLANE_VERSION"
+      - if: steps.present.outputs.skip != 'true'
+        run: flutter pub get
+      - name: Build the bundle and upload it to the internal track
+        if: steps.present.outputs.skip != 'true'
+        env:
+          PLAY_JSON_KEY_PATH: ${{ runner.temp }}/play-service-account.json
+        run: cd android && fastlane beta
+
+  ios-testflight:
+    if: github.ref_type == 'branch'
+    needs: version
+    runs-on: macos-15
+    environment: testing
+    env:
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: The App Store Connect key, from the secrets
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/asc"
+          printf '%s\n' "$ASC_KEY_P8" > "$RUNNER_TEMP/asc/AuthKey.p8"
+          echo "ASC_KEY_PATH=$RUNNER_TEMP/asc/AuthKey.p8" >> "$GITHUB_ENV"
+      - name: Is this build number already on App Store Connect?
+        id: present
+        env:
+          BUILD: ${{ needs.version.outputs.build }}
+        run: |
+          set -euo pipefail
+          live=$(python3 scripts/asc.py build "$BUILD" | python3 -c 'import sys, json
+          d = json.load(sys.stdin)
+          print(sum(1 for b in d.get("data", []) if not b["attributes"].get("expired")))')
+          echo "builds numbered $BUILD on App Store Connect, not expired: $live"
+          if [ "$live" != 0 ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "build $BUILD is already on App Store Connect; nothing to upload. Raise the build number in pubspec.yaml for the next upload."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.present.outputs.skip != 'true'
+        run: flutter pub get
+      - name: Build the release archive with cloud signing
+        if: steps.present.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          flutter build ios --release --no-codesign
+          xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/Runner.xcarchive" archive \
+            -allowProvisioningUpdates -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Runner.xcarchive" \
+            -exportOptionsPlist ios/ExportOptions.plist -exportPath build/ios/ipa \
+            -allowProvisioningUpdates -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+      - name: Check every binary's platform and upload to TestFlight
+        if: steps.present.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          ipa=$(ls "$GITHUB_WORKSPACE"/build/ios/ipa/*.ipa | head -1)
+          cd ios && IPA="$ipa" fastlane upload
+
+  android-production:
+    if: github.ref_type == 'tag'
+    needs: version
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: The Play credential, from the secrets
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s' "$PLAY_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/play-service-account.json"
+      - run: sudo gem install fastlane -N -v "$FASTLANE_VERSION"
+      - name: Promote the internal build to production
+        env:
+          PLAY_JSON_KEY_PATH: ${{ runner.temp }}/play-service-account.json
+        run: cd android && fastlane promote
+
+  ios-app-store:
+    if: github.ref_type == 'tag'
+    needs: version
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: The App Store Connect key, from the secrets
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/asc"
+          printf '%s\n' "$ASC_KEY_P8" > "$RUNNER_TEMP/asc/AuthKey.p8"
+          echo "ASC_KEY_PATH=$RUNNER_TEMP/asc/AuthKey.p8" >> "$GITHUB_ENV"
+      - name: Wait for Apple to process the build, and check the App Store version exists
+        env:
+          BUILD: ${{ needs.version.outputs.build }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 40); do
+            state=$(python3 scripts/asc.py build "$BUILD" | python3 -c 'import sys, json
+          d = json.load(sys.stdin)
+          live = [b for b in d.get("data", []) if not b["attributes"].get("expired")]
+          print(live[0]["attributes"].get("processingState") if live else "ABSENT")')
+            echo "build $BUILD: $state"
+            if [ "$state" = VALID ]; then break; fi
+            if [ "$i" = 40 ]; then
+              echo "build $BUILD is not processed after 40 minutes; the testing upload of this commit must finish first"
+              exit 1
+            fi
+            sleep 60
+          done
+          n=$(python3 scripts/asc.py get "/v1/apps/6759628525/appStoreVersions?filter[versionString]=$VERSION&limit=1" \
+            | python3 -c 'import sys, json; print(len(json.load(sys.stdin).get("data", [])))')
+          if [ "$n" = 0 ]; then
+            echo "App Store version $VERSION does not exist; the iOS metadata lane creates it, or create it in App Store Connect, then re-run this job"
+            exit 1
+          fi
+      - name: Export-compliance gate, then attach the processed build to the App Store version
+        env:
+          BUILD: ${{ needs.version.outputs.build }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          python3 scripts/asc_export_gate.py "$BUILD" --expect false --version "$VERSION" \
+            --group "Soqucoin Beta" --external \
+            --whats-new "$(cat ios/fastlane/metadata/en-US/release_notes.txt)"
+          echo "Build $BUILD is attached to version $VERSION. The submission for App Store review is a step in App Store Connect."
