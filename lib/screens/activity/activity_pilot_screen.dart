@@ -17,6 +17,7 @@ import '../../providers/wallet_provider.dart';
 import 'activity_detail_sheet.dart';
 import '../../providers/display_prefs_provider.dart';
 import '../../providers/price_provider.dart';
+import '../../services/price_service.dart' show SoqPrice;
 import '../../theme/fmt.dart';
 
 class ActivityPilotScreen extends ConsumerStatefulWidget {
@@ -72,8 +73,10 @@ class _ActivityPilotScreenState extends ConsumerState<ActivityPilotScreen> {
     // worth when it happened. Only shown when there are figures to qualify —
     // with the line off, on stagenet, or with no rate, the feed reads as
     // before.
-    final showingFiat = ref.watch(livePriceProvider) != null;
-    if (showingFiat && timeline.isNotEmpty) items.add(const _FiatCaveat());
+    final livePrice = ref.watch(livePriceProvider);
+    if (livePrice != null && timeline.isNotEmpty) {
+      items.add(_FiatCaveat(livePrice));
+    }
     String? lastDay;
     for (final e in timeline) {
       final day = _dayLabel(e.timestamp);
@@ -106,7 +109,7 @@ class _ActivityPilotScreenState extends ConsumerState<ActivityPilotScreen> {
                         separatorBuilder: (_, _) => const SizedBox(height: 2),
                         itemBuilder: (_, i) {
                           final it = items[i];
-                          if (it is _FiatCaveat) return _fiatCaveat();
+                          if (it is _FiatCaveat) return _fiatCaveat(it.price);
                           return it is String
                               ? _dayHeader(it, first: i == 0)
                               : _row(it as _Entry);
@@ -142,15 +145,25 @@ class _ActivityPilotScreenState extends ConsumerState<ActivityPilotScreen> {
         child: Text(label, style: Instrument.eyebrow(size: 10)),
       );
 
-  /// The one line that keeps the money figures below honest.
-  Widget _fiatCaveat() => const Padding(
-        padding: EdgeInsets.only(top: 2, bottom: 10),
-        child: Text(
-          'Money figures are at today\u2019s rate, not the rate at the time.',
-          style: TextStyle(
-              color: Instrument.faint, fontSize: 10.5, height: 1.3),
-        ),
-      );
+  /// The one line that keeps the money figures below honest: what rate they
+  /// use, where it came from and how old it is. The rows carry only the
+  /// figure, so the provenance is stated once, here.
+  Widget _fiatCaveat(SoqPrice price) {
+    final source = price.source;
+    final provenance = [
+      if (source != null && source.isNotEmpty) source,
+      InstrumentFiat.ageLabel(price.ageAt(DateTime.now())),
+    ].join('  ·  ');
+    return Padding(
+      padding: const EdgeInsets.only(top: 2, bottom: 10),
+      child: Text(
+        'Money figures are at today\u2019s rate, not the rate at the time. '
+        'Rate: $provenance.',
+        style: const TextStyle(
+            color: Instrument.faint, fontSize: 10.5, height: 1.3),
+      ),
+    );
+  }
 
   Widget _topBar() => Padding(
         padding: const EdgeInsets.fromLTRB(8, 6, 22, 10),
@@ -387,5 +400,6 @@ class _Entry {
 
 /// List marker for the one-line "today's rate" qualifier above the feed.
 class _FiatCaveat {
-  const _FiatCaveat();
+  const _FiatCaveat(this.price);
+  final SoqPrice price;
 }

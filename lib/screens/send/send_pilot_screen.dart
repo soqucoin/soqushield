@@ -670,17 +670,21 @@ class _SendPilotScreenState extends ConsumerState<SendPilotScreen>
 
     final amount = double.tryParse(_amountCtrl.text) ?? 0;
     final currency = ref.watch(fiatCurrencyProvider);
-    final value = ref.watch(livePriceProvider)?.valueOf(amount);
+    final price = ref.watch(livePriceProvider);
+    final value = price?.valueOf(amount);
+    // The source and the age ride with the figure, as on Home: this screen
+    // has no other provenance label. The slot holds both lines.
     return SizedBox(
-      height: 20,
+      height: 34,
       child: Center(
         child: (value == null || amount <= 0)
             ? const SizedBox.shrink()
-            : Text(fmtMoney(value, currency),
-                style: const TextStyle(
-                    color: Instrument.faint,
-                    fontSize: 12,
-                    fontFamily: kMono)),
+            : InstrumentFiat(
+                value: fmtMoney(value, currency),
+                source: price?.source,
+                age: price?.ageAt(DateTime.now()),
+                size: 12,
+              ),
       ),
     );
   }
