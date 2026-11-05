@@ -18,6 +18,7 @@ import '../../theme/instrument.dart';
 import '../../theme/figures.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/session_provider.dart';
+import '../../services/auth_service.dart' show AuthOutcome;
 
 class LockPilotScreen extends ConsumerStatefulWidget {
   const LockPilotScreen({super.key});
@@ -30,6 +31,9 @@ class _LockPilotScreenState extends ConsumerState<LockPilotScreen>
   bool _authenticating = false;
   bool _failed = false;
   bool _noDeviceAuth = false;
+  // The OS could not run the check right now (its own lockout, a request
+  // still pending). A credential exists; the owner waits and asks again.
+  bool _checkPaused = false;
   Timer? _lockoutTicker;
   // A prompt that has not answered within a few seconds shows a tap to
   // unlock, so a request lost in the return transition never leaves the
@@ -117,6 +121,7 @@ class _LockPilotScreenState extends ConsumerState<LockPilotScreen>
       _authenticating = true;
       _failed = false;
       _noDeviceAuth = false;
+      _checkPaused = false;
       _slow = false;
     });
     _slowTimer?.cancel();
@@ -140,29 +145,49 @@ class _LockPilotScreenState extends ConsumerState<LockPilotScreen>
       return;
     }
 
-    final success =
-        await session.whileSystemUi(service.authenticateWithBiometrics);
+    final outcome = await session.whileSystemUi(service.authenticate);
     if (attempt != _attempt) {
-      debugPrint('LOCK: stale result $success for attempt $attempt ignored');
+      debugPrint('LOCK: stale result $outcome for attempt $attempt ignored');
       return;
     }
     _slowTimer?.cancel();
-    debugPrint('LOCK: authenticate result $success');
+    debugPrint('LOCK: authenticate result $outcome');
     if (!mounted) return;
 
-    if (success) {
-      await session.resetFailedAttempts();
-      HapticFeedback.mediumImpact();
-      ref.read(authProvider.notifier).unlock();
-      if (mounted) context.go('/');
-    } else {
-      await session.recordFailedAttempt();
-      if (!mounted) return;
-      setState(() {
-        _authenticating = false;
-        _failed = true;
-      });
-      if (session.isInLockout) _startLockoutTicker();
+    switch (outcome) {
+      case AuthOutcome.success:
+        await session.resetFailedAttempts();
+        HapticFeedback.mediumImpact();
+        ref.read(authProvider.notifier).unlock();
+        if (mounted) context.go('/');
+
+      case AuthOutcome.unavailable:
+        // The OS declined to run the check right now — its own biometric
+        // lockout, or a request still pending. That is not the owner getting
+        // it wrong, so it burns no attempt: stacking this app's backoff on
+        // the platform's would make an owner wait twice for one mistake, and
+        // the second wait cannot be cleared by presenting the right finger.
+        // A credential exists, so the guidance is to wait and try again.
+        setState(() {
+          _authenticating = false;
+          _checkPaused = true;
+        });
+
+      case AuthOutcome.noCredential:
+        // Nothing to check against: the enrollment guidance.
+        setState(() {
+          _authenticating = false;
+          _noDeviceAuth = true;
+        });
+
+      case AuthOutcome.failed:
+        await session.recordFailedAttempt();
+        if (!mounted) return;
+        setState(() {
+          _authenticating = false;
+          _failed = true;
+        });
+        if (session.isInLockout) _startLockoutTicker();
     }
   }
 
@@ -300,6 +325,40 @@ class _LockPilotScreenState extends ConsumerState<LockPilotScreen>
               'SoquShield uses your device screen lock to protect your '
               'wallet. Set a PIN, pattern or passcode in your device '
               'settings, then return here. Your wallet is intact.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  color: Instrument.faint, fontSize: 12, height: 1.5),
+            ),
+          ),
+          const SizedBox(height: 20),
+          SizedBox(
+            width: 220,
+            child: InstrumentButton(
+              label: 'Try again',
+              icon: Icons.refresh_rounded,
+              primary: true,
+              onTap: _authenticate,
+            ),
+          ),
+        ],
+      );
+    }
+    if (_checkPaused) {
+      return Column(
+        children: [
+          Icon(Icons.lock_clock_rounded,
+              size: 26, color: const Color(0xFFD9A441)),
+          const SizedBox(height: 14),
+          Text('CHECK PAUSED',
+              style: Instrument.eyebrow(
+                  size: 11, color: const Color(0xFFD9A441))),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Text(
+              'Your device paused its credential check. Wait a moment, '
+              'then try again. If it stays paused, unlock your device with '
+              'its PIN, pattern or passcode first. Your wallet is intact.',
               textAlign: TextAlign.center,
               style: TextStyle(
                   color: Instrument.faint, fontSize: 12, height: 1.5),

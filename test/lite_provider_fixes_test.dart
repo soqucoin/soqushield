@@ -217,6 +217,66 @@ void main() {
         isEmpty);
   });
 
+  test('2b. a restore retires the refresh in flight; the replaced wallet\'s '
+      'coins do not come back', () async {
+    // ⛔ Stopping the timers does not cancel a reply already awaited. The
+    // balance for wallet A is held across the restore; when it lands, the
+    // rest of that refresh runs — getUtxos for A's address, then a write of
+    // A's outputs into the partition the restored wallet now reads. Restore
+    // did not advance the generation, so the staleness check let it through.
+    final hold = Completer<void>();
+    storeWallet(SoqNetwork.mainnet, mainnetAddress);
+    await bootWith(client(
+      holdMainnetBalance: hold,
+      mainnetUtxos: [_remoteUtxo('ef', 0, 5.0)],
+    ));
+
+    // A different wallet takes A's place while A's reply is still held.
+    await container.read(walletProvider.notifier).restoreFromMnemonic(
+        'legal winner thank year wave sausage worth useful legal winner '
+        'thank year wave sausage worth useful legal will');
+    expect(secureStore['soq_utxo_set_mainnet'], anyOf(isNull, '[]'),
+        reason: 'the restore cleared the replaced wallet\'s coins');
+
+    hold.complete();
+    await _settle();
+
+    expect(secureStore['soq_utxo_set_mainnet'], anyOf(isNull, '[]'),
+        reason: "the held refresh belonged to the wallet that was replaced; "
+            'its outputs must not be written back');
+    expect(container.read(walletProvider).balance, 0,
+        reason: 'nor may its 42 SOQ reach the restored wallet');
+  });
+
+  test('2c. a restore clears the replaced wallet\'s history on EVERY network',
+      () async {
+    // clear() removes only the partition that is open. The replaced wallet's
+    // rows on the other network survived, and switching the restored wallet
+    // over read them into its Activity feed.
+    storeWallet(SoqNetwork.mainnet, mainnetAddress);
+    SharedPreferences.setMockInitialValues({
+      'soqshield_tx_history_mainnet': jsonEncode([
+        {'txid': 'aa' * 32, 'type': 1, 'amount': 2.0, 'timestamp': 1700000000000, 'confirmations': 3}
+      ]),
+      'soqshield_tx_history_stagenet': jsonEncode([
+        {'txid': 'bb' * 32, 'type': 1, 'amount': 9.0, 'timestamp': 1700000000000, 'confirmations': 3}
+      ]),
+    });
+    await bootWith(client());
+
+    await container.read(walletProvider.notifier).restoreFromMnemonic(
+        'legal winner thank year wave sausage worth useful legal winner '
+        'thank year wave sausage worth useful legal will');
+    await _settle();
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('soqshield_tx_history_mainnet'),
+        anyOf(isNull, '[]'), reason: 'the open network');
+    expect(prefs.getString('soqshield_tx_history_stagenet'), isNull,
+        reason: "the replaced wallet's rows on the network that is not open "
+            'are still its rows');
+  });
+
   test('3. a wipe deletes the default-instance keys of earlier builds by name',
       () async {
     storeWallet(SoqNetwork.mainnet, mainnetAddress);
