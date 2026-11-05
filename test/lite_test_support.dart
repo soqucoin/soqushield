@@ -23,6 +23,10 @@ final List<String> secureStorageCalls = [];
 /// test can switch the network or wipe the wallet while a write is in flight.
 final Map<String, Completer<void>> secureStorageWriteHolds = {};
 
+/// A read of one of these keys waits on its completer before it answers, so
+/// a test can move a partition while a read is in flight.
+final Map<String, Completer<void>> secureStorageReadHolds = {};
+
 /// The next write to one of these keys is refused with a platform error (the
 /// key is removed from the set as it fires), so a test can fail a storage
 /// write once, mid-operation.
@@ -33,6 +37,7 @@ void installSecureStorageMock() {
   secureStore.clear();
   secureStorageCalls.clear();
   secureStorageWriteHolds.clear();
+  secureStorageReadHolds.clear();
   secureStorageWriteFailures.clear();
   TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .setMockMethodCallHandler(
@@ -42,6 +47,8 @@ void installSecureStorageMock() {
       secureStorageCalls.add('${call.method} ${args['key'] ?? ''}'.trim());
       switch (call.method) {
         case 'read':
+          final readHold = secureStorageReadHolds[args['key'] as String];
+          if (readHold != null) await readHold.future;
           return secureStore[args['key'] as String];
         case 'write':
           if (secureStorageWriteFailures.remove(args['key'] as String)) {
