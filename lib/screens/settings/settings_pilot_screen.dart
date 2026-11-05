@@ -6,6 +6,7 @@
 //
 // Copyright 2026 Soqucoin Labs Inc.
 
+import 'dart:io';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -18,6 +19,7 @@ import 'package:share_plus/share_plus.dart';
 import '../../theme/instrument.dart';
 import '../../theme/motion.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/display_prefs_provider.dart';
 import '../../providers/session_provider.dart';
 import '../../providers/wallet_provider.dart';
 import '../../models/wallet_keys.dart' show SoqNetwork;
@@ -61,6 +63,7 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
   Widget build(BuildContext context) {
     final wallet = ref.watch(walletProvider);
     final session = ref.watch(sessionProvider);
+    final prefs = ref.watch(displayPrefsProvider);
 
     return Scaffold(
       backgroundColor: Instrument.void0,
@@ -85,6 +88,17 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
                           .read(sessionProvider.notifier)
                           .setLockOnBackground(v)),
                   _timeoutTile(session),
+
+                  // ── PRIVACY & DISPLAY ──
+                  // NOT 'PRIVACY': the full app's PRIVACY section held the
+                  // shielded-transaction surfaces (privacy dashboard, view
+                  // key, coin control) that the lite build dropped, and a
+                  // scope pin asserts that exact header never returns. This
+                  // section is about what the screen shows, not about
+                  // confidential transactions.
+                  _section('PRIVACY & DISPLAY'),
+                  _screenCaptureTile(prefs),
+                  _noteTile(_captureNote),
 
                   // ── BACKUP & KEYS ──
                   _section('BACKUP & KEYS'),
@@ -593,6 +607,27 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
                 color: on ? Instrument.signal : Instrument.label),
           ),
         ),
+      );
+
+  /// What the capture toggle actually does, per platform — the two are not
+  /// the same protection and the copy must not pretend otherwise.
+  String get _captureNote => Platform.isIOS
+      ? 'iOS does not let any app block screenshots. This controls the blur '
+          'over the app in the app switcher. Your recovery phrase stays '
+          'covered either way.'
+      : 'Allowing capture also allows screen recording and casting — the '
+          'channel a remote-support scam uses to watch you open your wallet. '
+          'Your recovery phrase stays protected either way.';
+
+  Widget _screenCaptureTile(DisplayPrefs prefs) => _toggleTile(
+        Icons.screenshot_monitor_outlined,
+        Platform.isIOS ? 'Allow app-switcher preview' : 'Allow screenshots',
+        Platform.isIOS
+            ? 'Show the app unblurred when switching apps'
+            : 'Screenshots, screen recording and casting',
+        prefs.allowScreenCapture,
+        (v) =>
+            ref.read(displayPrefsProvider.notifier).setAllowScreenCapture(v),
       );
 
   Widget _timeoutTile(SessionConfig session) => _rowFrame(
