@@ -10,3 +10,19 @@ condition = "AND"
 paths = ['''^ios/Podfile\.lock$''']
 regexTarget = "line"
 regexes = ['''^\s*[A-Za-z0-9_./+-]+: [0-9a-f]{40}\s*$''']
+
+# The app names every stored value with a key of the form `soq..._v<n>` — lowercase, versioned,
+# and present in the source because it IS the name the value is stored under. The generic-api-key
+# rule scores `soq_fiat_currency_v1` at entropy 3.88 and reports it as a secret.
+#
+# The allowance is written against the VALUE's shape rather than the variable's name: a key that
+# is actually secret cannot look like this. Lowercase letters, digits and underscores only,
+# opening `soq`, closing `_v` and digits. The whole line must be one declaration of that literal,
+# anchored at both ends, so a secret ahead of the key on the same line is still a finding.
+# Both conditions must hold, and only under lib/.
+[[allowlists]]
+description = "Storage key names in the app source (reviewed 5 November 2026)"
+condition = "AND"
+paths = ['''^lib/.*\.dart$''']
+regexTarget = "line"
+regexes = ['''^\s*(?:static\s+)?(?:const|final)\s+(?:[A-Za-z_][A-Za-z0-9_]*\s+)?[A-Za-z_][A-Za-z0-9_]*\s*=\s*'soq[a-z0-9_]*_v[0-9]+'\s*;\s*$''']
