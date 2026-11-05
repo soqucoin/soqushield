@@ -405,6 +405,15 @@ class WalletNotifier extends Notifier<WalletState> {
         network: state.network,
       );
 
+      // ⛔ The coins, and the history, of the wallet being REPLACED.
+      // Both caches are keyed by network and not by wallet, so without this
+      // the restored wallet opens holding a balance it does not own: the
+      // cached set survives into the next boot, and it is what coin selection
+      // spends from. wipeWallet has always done this; a restore replaces one
+      // wallet with another just as completely.
+      await _utxoService.clearAll();
+      await TxHistoryService.clear();
+
       // Store
       await _storageService.storeWallet(
         mnemonic: mnemonic,

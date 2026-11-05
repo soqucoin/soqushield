@@ -133,6 +133,45 @@ void main() {
 
   Set<String> hosts() => overrides.urls.map((u) => u.host).toSet();
 
+  test('a restore drops the coins of the wallet it replaces', () async {
+    // ⛔ The cached coin set is keyed by NETWORK, not by wallet
+    // (soq_utxo_set_mainnet), so it survives a restore unless something
+    // clears it. wipeWallet calls clearAll; restoreFromMnemonic did not, so
+    // the restored wallet opened holding the previous wallet's coins — a
+    // balance it does not own, feeding the selection the builder spends from.
+    storeWallet(SoqNetwork.mainnet, mainnetAddress);
+    secureStore['soq_utxo_set_mainnet'] = jsonEncode([
+      {
+        'txid': 'a' * 64,
+        'vout': 0,
+        'value': 5.0,
+        'valueSat': 500000000,
+        'scriptPubKey': '5120${'bb' * 32}',
+        'address': mainnetAddress,
+        'height': 100,
+        'confirmations': 6,
+        'locked': false,
+        'assetType': 0,
+        'visibility': 0,
+      }
+    ]);
+
+    await _boot(container);
+    expect(container.read(walletProvider).balance, closeTo(5.0, 1e-9),
+        reason: 'the previous wallet is holding 5 SOQ');
+
+    // A different wallet takes its place.
+    await container.read(walletProvider.notifier).restoreFromMnemonic(
+        'legal winner thank year wave sausage worth useful legal winner '
+        'thank year wave sausage worth useful legal will');
+    await _settle();
+
+    expect(container.read(walletProvider).balance, 0,
+        reason: 'the restored wallet owns none of those coins');
+    expect(secureStore['soq_utxo_set_mainnet'], anyOf(isNull, '[]'),
+        reason: 'and they must not be waiting in storage for the next boot');
+  });
+
   test('a new install is born on mainnet', () async {
     final s = await _boot(container);
     expect(s.hasWallet, isFalse);
