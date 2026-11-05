@@ -27,6 +27,10 @@ final Map<String, Completer<void>> secureStorageWriteHolds = {};
 /// a test can move a partition while a read is in flight.
 final Map<String, Completer<void>> secureStorageReadHolds = {};
 
+/// The next read of one of these keys fails with a platform error (the key
+/// is removed from the set as it fires), as a keystore read sometimes does.
+final Set<String> secureStorageReadFailures = {};
+
 /// The next write to one of these keys is refused with a platform error (the
 /// key is removed from the set as it fires), so a test can fail a storage
 /// write once, mid-operation.
@@ -38,6 +42,7 @@ void installSecureStorageMock() {
   secureStorageCalls.clear();
   secureStorageWriteHolds.clear();
   secureStorageReadHolds.clear();
+  secureStorageReadFailures.clear();
   secureStorageWriteFailures.clear();
   TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .setMockMethodCallHandler(
@@ -49,6 +54,9 @@ void installSecureStorageMock() {
         case 'read':
           final readHold = secureStorageReadHolds[args['key'] as String];
           if (readHold != null) await readHold.future;
+          if (secureStorageReadFailures.remove(args['key'] as String)) {
+            throw PlatformException(code: 'test', message: 'read refused');
+          }
           return secureStore[args['key'] as String];
         case 'write':
           if (secureStorageWriteFailures.remove(args['key'] as String)) {

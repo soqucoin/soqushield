@@ -23,7 +23,6 @@ import '../../providers/wallet_provider.dart';
 import '../../models/wallet_keys.dart' show SoqNetwork;
 import '../../services/backup_handoff.dart';
 import '../../services/backup_service.dart';
-import '../../services/secure_storage_service.dart';
 import '../../services/rpc_service.dart';
 import '../../app_version.dart';
 
@@ -166,7 +165,8 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
     }
     setState(() => _exporting = true);
     try {
-      final backup = BackupService(SecureStorageService());
+      final backup =
+          BackupService(ref.read(walletProvider.notifier).openWalletStorage());
       final bytes = await backup.exportBackup(password);
       if (bytes == null) {
         _showSnack('No wallet to export');
@@ -193,7 +193,8 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
           'removed. Restart the app and try again.');
     } catch (e) {
       try {
-        final backup = BackupService(SecureStorageService());
+        final backup =
+          BackupService(ref.read(walletProvider.notifier).openWalletStorage());
         final bytes = await backup.exportBackup(password);
         if (bytes != null) {
           await Clipboard.setData(

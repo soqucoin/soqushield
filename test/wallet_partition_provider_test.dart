@@ -177,4 +177,83 @@ void main() {
         isEmpty,
         reason: 'a resold device carries no wallet\'s payment record');
   });
+
+  group('more than one wallet', () {
+    String katAddress(String network, int account) => (kat['vectors']
+            as List)
+        .cast<Map<String, dynamic>>()
+        .firstWhere((v) =>
+            v['network'] == network && v['accountIndex'] == account)['address']
+        as String;
+
+    test("4. the seed readers outside the notifier read the open wallet's",
+        () async {
+      storeTwoWallets(active: 'w2');
+      // The primary wallet's words are not w2's.
+      secureStore['soq_mnemonic_v2'] = 'primary words only';
+      secureStore['soq_w_w2_soq_mnemonic_v2'] = mnemonic;
+      secureStore['soq_w_w2_soq_address_v2'] = katAddress('mainnet', 1);
+      secureStore['soq_w_w2_soq_account_index_v2'] = '1';
+      secureStore['soq_w_w2_soq_network_v2'] = 'mainnet';
+      await _boot(container);
+
+      final storage =
+          container.read(walletProvider.notifier).openWalletStorage();
+      expect(await storage.readMnemonic(), mnemonic,
+          reason: 'the recovery phrase screen and the export read through '
+              'this; a default instance would read the primary wallet');
+    });
+
+    test('5. a phrase created moments ago cannot be imported beside itself',
+        () async {
+      await _boot(container);
+      final n = container.read(walletProvider.notifier);
+      await n.createWallet('Test');
+      final words = container.read(walletProvider).seedPhrase!.mnemonic;
+
+      final again = await n.importAdditionalWallet(name: 'Again', mnemonic: words);
+
+      expect(again, isNull);
+      expect(await n.listWallets(), hasLength(1),
+          reason: 'one wallet, one entry');
+    });
+
+    test('6. a wallet last seen on the other network is still a duplicate',
+        () async {
+      await _boot(container);
+      final n = container.read(walletProvider.notifier);
+      await n.createWallet('Test');
+      final net = container.read(walletProvider).network;
+      final other =
+          SoqNetwork.values.firstWhere((x) => x != net);
+      await n.importAdditionalWallet(name: 'K', mnemonic: mnemonic);
+      // That wallet's row now says it was last on the other network.
+      final rows = await n.listWallets();
+      final k = rows.singleWhere((w) => !w.isPrimary);
+      secureStore['soq_wallets_v1'] = jsonEncode([
+        for (final w in rows)
+          (w.id == k.id
+                  ? w.copyWith(
+                      network: other, address: katAddress(other.name, 0))
+                  : w)
+              .toJson(),
+      ]);
+
+      final again = await n.importAdditionalWallet(name: 'K2', mnemonic: mnemonic);
+
+      expect(again, isNull);
+      expect(await n.listWallets(), hasLength(2));
+    });
+
+    test("7. an imported wallet is backed up under its own id", () async {
+      await _boot(container);
+      final n = container.read(walletProvider.notifier);
+      await n.createWallet('Test');
+
+      final k = await n.importAdditionalWallet(name: 'K', mnemonic: mnemonic);
+
+      expect(secureStore['soq_w_${k!.id}_soq_backup_confirmed_v2'], 'true',
+          reason: 'or opening it leaves the inactivity lock unarmed');
+    });
+  });
 }

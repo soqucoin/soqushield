@@ -338,6 +338,15 @@ class WalletNotifier extends Notifier<WalletState> {
         debugPrint('MIGRATION: Stale UTXO cache cleared, address updated');
       }
 
+      // The registry row follows the derived address and the network, so
+      // the wallet list and the duplicate check read what is open now.
+      try {
+        await _storageService.recordOpenWallet(
+            address: keys.address, network: network);
+      } catch (e) {
+        debugPrint('BOOT: registry row not updated: $e');
+      }
+
       // Load UTXO set (empty after migration, populated on first refresh)
       await _utxoService.load();
 
@@ -472,18 +481,28 @@ class WalletNotifier extends Notifier<WalletState> {
       if (!_keyService.validateMnemonic(words)) {
         throw Exception('Those words are not a valid recovery phrase');
       }
-      final keys = await _keyService.deriveFromMnemonic(
-        SeedPhrase(words: words.split(RegExp(r'\s+')), backupConfirmed: true),
-        network: state.network,
-      );
-      if ((await _storageService.knownAddresses()).contains(keys.address)) {
-        throw Exception('That wallet is already on this device');
+      final seed =
+          SeedPhrase(words: words.split(RegExp(r'\s+')), backupConfirmed: true);
+      final keys =
+          await _keyService.deriveFromMnemonic(seed, network: state.network);
+      // The phrase's address on EVERY network: a row records the address of
+      // the network its wallet was last on, which need not be this one.
+      final addressOn = <SoqNetwork, String>{state.network: keys.address};
+      for (final n in SoqNetwork.values) {
+        addressOn[n] ??=
+            (await _keyService.deriveFromMnemonic(seed, network: n)).address;
       }
+      // The duplicate check runs inside the registry queue, after the
+      // pre-registry wallet is adopted: a wallet created or restored moments
+      // ago has no row until then, and a check made before it would pass.
       final record = await _storageService.addWallet(
         name: name,
         mnemonic: words,
         keys: keys,
         network: state.network,
+        // The owner typed these words in: they have them.
+        backupConfirmed: true,
+        isSameWallet: (row) => row.address == addressOn[row.network],
       );
       debugPrint('WALLETS: imported ${record.id} on ${state.network.name}');
       return record;
@@ -496,6 +515,16 @@ class WalletNotifier extends Notifier<WalletState> {
 
   /// Every wallet on this device, for a list the owner can read.
   Future<List<WalletRecord>> listWallets() => _storageService.listWallets();
+
+  /// A storage instance on the OPEN wallet's secrets, for a reader outside
+  /// this notifier: the recovery phrase screen and the encrypted export.
+  ///
+  /// ⛔ A plain `SecureStorageService()` is scoped to the primary wallet.
+  /// Reading the seed through one while another wallet is open shows, or
+  /// exports, a wallet the owner is not looking at, and confirming those
+  /// words would mark the open wallet backed up without its own.
+  SecureStorageService openWalletStorage() =>
+      SecureStorageService()..setWallet(_storageService.walletId);
 
   /// Restore wallet from existing mnemonic on the current network.
   Future<void> restoreFromMnemonic(String mnemonic) async {

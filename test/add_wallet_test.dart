@@ -220,4 +220,120 @@ void main() {
             'list of wallets');
     expect(jsonDecode(secureStore['soq_wallets_v1']!), hasLength(2));
   });
+
+  group('the registry under concurrent and failing writers', () {
+    const addrC =
+        'sq1pcccccd46xrh8vl8ac86x8sm4dlynv95ckpyn5y4d46kte8js05k2qccccccc';
+
+    test('two additions started together both land in the list', () async {
+      seedFirstWallet();
+      final b = store.addWallet(
+          name: 'B',
+          mnemonic: _mnemonicB,
+          keys: _keys(_addrB),
+          network: SoqNetwork.mainnet);
+      final c = SecureStorageService().addWallet(
+          name: 'C',
+          mnemonic: 'zoo zoo zoo zoo zoo wrong',
+          keys: _keys(addrC),
+          network: SoqNetwork.mainnet);
+      final added = await Future.wait([b, c]);
+
+      expect((await store.listWallets()).map((w) => w.id),
+          containsAll(added.map((w) => w.id)),
+          reason: "neither read-modify-write may erase the other's row");
+      expect(await store.listWallets(), hasLength(3));
+    });
+
+    test('a registry read that fails aborts the write', () async {
+      seedFirstWallet();
+      await store.addWallet(
+          name: 'B',
+          mnemonic: _mnemonicB,
+          keys: _keys(_addrB),
+          network: SoqNetwork.mainnet);
+      final before = secureStore['soq_wallets_v1'];
+
+      secureStorageReadFailures.add('soq_wallets_v1');
+      await expectLater(
+          store.putWallet(WalletRecord(
+              id: WalletRecord.primaryId,
+              name: 'Renamed',
+              address: _addrA,
+              network: SoqNetwork.mainnet,
+              createdAt: DateTime(2026))),
+          throwsA(anything));
+
+      expect(secureStore['soq_wallets_v1'], before,
+          reason: 'a failed read is not an empty registry; writing one row '
+              'over it would hide every other wallet');
+    });
+
+    test('a phrase already here is refused even before adoption', () async {
+      // Created or restored moments ago: secrets, but no registry row yet.
+      seedFirstWallet();
+      expect(secureStore['soq_wallets_v1'], isNull);
+
+      await expectLater(
+          store.addWallet(
+              name: 'Again',
+              mnemonic: _mnemonicA,
+              keys: _keys(_addrA),
+              network: SoqNetwork.mainnet),
+          throwsA(isA<DuplicateWalletException>()));
+      expect(await store.listWallets(), hasLength(1),
+          reason: 'one wallet, one entry');
+    });
+
+    test("an imported wallet's backup flag lands under its own id", () async {
+      seedFirstWallet();
+      final b = await store.addWallet(
+          name: 'B',
+          mnemonic: _mnemonicB,
+          keys: _keys(_addrB),
+          network: SoqNetwork.mainnet,
+          backupConfirmed: true);
+
+      expect(secureStore['soq_w_${b.id}_soq_backup_confirmed_v2'], 'true');
+      expect(secureStore['soq_backup_confirmed_v2'], isNull,
+          reason: 'the open wallet is not confirmed in its place');
+    });
+
+    test('the network writer is scoped like its reader', () async {
+      seedFirstWallet();
+      final b = await store.addWallet(
+          name: 'B',
+          mnemonic: _mnemonicB,
+          keys: _keys(_addrB),
+          network: SoqNetwork.mainnet);
+
+      store.setWallet(b.id);
+      await store.writeNetwork(SoqNetwork.stagenet);
+
+      expect(await store.readNetwork(), SoqNetwork.stagenet);
+      expect(secureStore['soq_network_v2'], 'mainnet',
+          reason: "the primary wallet's network is not this one's");
+    });
+
+    test('storing a wallet brings its row to the new address and network',
+        () async {
+      seedFirstWallet();
+      secureStore['soq_network_v2'] = 'stagenet';
+      await store.adoptExistingWallet();
+      final adopted = (await store.listWallets()).single;
+      expect(adopted.network, SoqNetwork.stagenet);
+
+      await store.storeWallet(
+          mnemonic: _mnemonicA,
+          keys: _keys(addrC),
+          network: SoqNetwork.mainnet);
+
+      final row = (await store.listWallets()).single;
+      expect(row.address, addrC);
+      expect(row.network, SoqNetwork.mainnet);
+      expect(row.id, WalletRecord.primaryId);
+      expect(row.name, adopted.name);
+      expect(row.createdAt, adopted.createdAt);
+    });
+  });
 }
