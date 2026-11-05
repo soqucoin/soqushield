@@ -22,9 +22,15 @@ enum AuthOutcome {
   /// they cannot be told apart here.
   failed,
 
-  /// The check could not run: the OS biometric API is locked out, no
-  /// credential is enrolled, or the platform refused. Never a failed attempt.
+  /// The check could not run right now: the OS biometric API is locked out,
+  /// another request is still pending, or there is no foreground activity to
+  /// show it on. A credential exists; waiting and asking again is the way
+  /// forward. Never a failed attempt.
   unavailable,
+
+  /// The check cannot run because the device has no credential to check: no
+  /// screen lock, or nothing enrolled. Never a failed attempt.
+  noCredential,
 }
 
 /// Manages local account persistence and biometric authentication.
@@ -133,6 +139,27 @@ class AuthService {
   Future<bool> authenticateWithBiometrics() async =>
       (await authenticate()) == AuthOutcome.success;
 
+  /// Error codes for a check that could not start right now although a
+  /// credential exists. The last three are thrown by the Android plugin when
+  /// a request is already pending (a tap to unlock raised while the dropped
+  /// one has not stopped yet) or there is no activity to show the prompt on.
+  @visibleForTesting
+  static const notNow = {
+    auth_error.lockedOut,
+    auth_error.permanentlyLockedOut,
+    'auth_in_progress',
+    'no_activity',
+    'no_fragment_activity',
+  };
+
+  /// Error codes for a device with no credential to check.
+  @visibleForTesting
+  static const noCredentialCodes = {
+    auth_error.notAvailable,
+    auth_error.notEnrolled,
+    auth_error.passcodeNotSet,
+  };
+
   /// Trigger Face ID / Touch ID, reporting HOW it ended.
   Future<AuthOutcome> authenticate() async {
     if (kIsWeb) return AuthOutcome.success; // Skip on web
@@ -149,16 +176,9 @@ class AuthService {
       debugPrint('Biometric auth error: ${e.code}');
       // The OS could not run the check. Its own lockout already makes the
       // user wait; the app must not add a second, longer wait on top.
-      const cannotRun = {
-        auth_error.lockedOut,
-        auth_error.permanentlyLockedOut,
-        auth_error.notAvailable,
-        auth_error.notEnrolled,
-        auth_error.passcodeNotSet,
-      };
-      return cannotRun.contains(e.code)
-          ? AuthOutcome.unavailable
-          : AuthOutcome.failed;
+      if (notNow.contains(e.code)) return AuthOutcome.unavailable;
+      if (noCredentialCodes.contains(e.code)) return AuthOutcome.noCredential;
+      return AuthOutcome.failed;
     } catch (e) {
       debugPrint('Biometric auth error: $e');
       return AuthOutcome.failed;

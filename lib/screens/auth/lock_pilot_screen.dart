@@ -31,6 +31,9 @@ class _LockPilotScreenState extends ConsumerState<LockPilotScreen>
   bool _authenticating = false;
   bool _failed = false;
   bool _noDeviceAuth = false;
+  // The OS could not run the check right now (its own lockout, a request
+  // still pending). A credential exists; the owner waits and asks again.
+  bool _checkPaused = false;
   Timer? _lockoutTicker;
   // A prompt that has not answered within a few seconds shows a tap to
   // unlock, so a request lost in the return transition never leaves the
@@ -118,6 +121,7 @@ class _LockPilotScreenState extends ConsumerState<LockPilotScreen>
       _authenticating = true;
       _failed = false;
       _noDeviceAuth = false;
+      _checkPaused = false;
       _slow = false;
     });
     _slowTimer?.cancel();
@@ -158,12 +162,19 @@ class _LockPilotScreenState extends ConsumerState<LockPilotScreen>
         if (mounted) context.go('/');
 
       case AuthOutcome.unavailable:
-        // The OS declined to run the check — its own biometric lockout, or no
-        // credential enrolled. That is not the owner getting it wrong, so it
-        // burns no attempt: stacking this app's backoff on the platform's
-        // would make an owner wait twice for one mistake, and the second wait
-        // cannot be cleared by presenting the right finger. Show the same
-        // enrollment guidance the no-screen-lock case gets.
+        // The OS declined to run the check right now — its own biometric
+        // lockout, or a request still pending. That is not the owner getting
+        // it wrong, so it burns no attempt: stacking this app's backoff on
+        // the platform's would make an owner wait twice for one mistake, and
+        // the second wait cannot be cleared by presenting the right finger.
+        // A credential exists, so the guidance is to wait and try again.
+        setState(() {
+          _authenticating = false;
+          _checkPaused = true;
+        });
+
+      case AuthOutcome.noCredential:
+        // Nothing to check against: the enrollment guidance.
         setState(() {
           _authenticating = false;
           _noDeviceAuth = true;
@@ -314,6 +325,40 @@ class _LockPilotScreenState extends ConsumerState<LockPilotScreen>
               'SoquShield uses your device screen lock to protect your '
               'wallet. Set a PIN, pattern or passcode in your device '
               'settings, then return here. Your wallet is intact.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  color: Instrument.faint, fontSize: 12, height: 1.5),
+            ),
+          ),
+          const SizedBox(height: 20),
+          SizedBox(
+            width: 220,
+            child: InstrumentButton(
+              label: 'Try again',
+              icon: Icons.refresh_rounded,
+              primary: true,
+              onTap: _authenticate,
+            ),
+          ),
+        ],
+      );
+    }
+    if (_checkPaused) {
+      return Column(
+        children: [
+          Icon(Icons.lock_clock_rounded,
+              size: 26, color: const Color(0xFFD9A441)),
+          const SizedBox(height: 14),
+          Text('CHECK PAUSED',
+              style: Instrument.eyebrow(
+                  size: 11, color: const Color(0xFFD9A441))),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Text(
+              'Your device paused its credential check. Wait a moment, '
+              'then try again. If it stays paused, unlock your device with '
+              'its PIN, pattern or passcode first. Your wallet is intact.',
               textAlign: TextAlign.center,
               style: TextStyle(
                   color: Instrument.faint, fontSize: 12, height: 1.5),

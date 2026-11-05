@@ -24,7 +24,9 @@ import 'package:soqushield/screens/auth/lock_pilot_screen.dart';
 import 'package:soqushield/screens/home/home_pilot_screen.dart';
 import 'package:soqushield/services/weather_service.dart';
 
-import 'package:soqushield/services/auth_service.dart' show AuthOutcome;
+import 'package:flutter/services.dart' show PlatformException;
+import 'package:local_auth/local_auth.dart';
+import 'package:soqushield/services/auth_service.dart';
 
 import 'lite_test_support.dart';
 
@@ -61,6 +63,19 @@ class _CountingWallet extends MockWalletNotifier {
   _CountingWallet() : super(_wallet());
   @override
   void clearKeyCache() => clears++;
+}
+
+/// The platform plugin refusing to run the check with [code].
+class _RefusingLocalAuth extends LocalAuthentication {
+  _RefusingLocalAuth(this.code);
+  final String code;
+  @override
+  Future<bool> authenticate({
+    required String localizedReason,
+    Iterable<Object> authMessages = const <Object>[],
+    AuthenticationOptions options = const AuthenticationOptions(),
+  }) async =>
+      throw PlatformException(code: code);
 }
 
 /// A device credential that reports a fixed [outcome] — used to drive the
@@ -458,8 +473,20 @@ void main() {
               'longer app-side backoff on top cannot be cleared by '
               'presenting the right finger');
       expect(session.isInLockout, isFalse);
-      expect(find.text('NO SCREEN LOCK SET'), findsOneWidget);
+      // A credential is enrolled; the guidance is to wait and ask again,
+      // never to go and set up a screen lock.
+      expect(find.text('CHECK PAUSED'), findsOneWidget);
+      expect(find.text('NO SCREEN LOCK SET'), findsNothing);
       expect(find.text('AUTHENTICATION FAILED'), findsNothing);
+    });
+
+    testWidgets('no credential to check shows the enrollment guidance',
+        (t) async {
+      await pumpLock(t, AuthOutcome.noCredential);
+
+      expect(container.read(sessionProvider).failedAttempts, 0);
+      expect(find.text('NO SCREEN LOCK SET'), findsOneWidget);
+      expect(find.text('CHECK PAUSED'), findsNothing);
     });
 
     testWidgets('a wrong finger still counts, as it must', (t) async {
@@ -468,6 +495,40 @@ void main() {
       expect(container.read(sessionProvider).failedAttempts, 1,
           reason: 'the brute-force backoff still has to exist');
       expect(find.text('AUTHENTICATION FAILED'), findsOneWidget);
+    });
+  });
+
+  group('a platform refusal is classified by what it means', () {
+    Future<AuthOutcome> refusedWith(String code) =>
+        AuthService(localAuth: _RefusingLocalAuth(code)).authenticate();
+
+    test('a pending request or no activity is a check that cannot run now',
+        () async {
+      // The Android plugin throws these when it cannot start the prompt: a
+      // tap to unlock raised while the dropped request is still pending, or
+      // no foreground activity. No credential was checked.
+      for (final code in [
+        'auth_in_progress',
+        'no_activity',
+        'no_fragment_activity',
+        'LockedOut',
+        'PermanentlyLockedOut',
+      ]) {
+        expect(await refusedWith(code), AuthOutcome.unavailable,
+            reason: code);
+      }
+    });
+
+    test('no screen lock or nothing enrolled is a missing credential',
+        () async {
+      for (final code in ['NotAvailable', 'NotEnrolled', 'PasscodeNotSet']) {
+        expect(await refusedWith(code), AuthOutcome.noCredential,
+            reason: code);
+      }
+    });
+
+    test('an unknown error still counts as a failed attempt', () async {
+      expect(await refusedWith('SomethingElse'), AuthOutcome.failed);
     });
   });
 }
