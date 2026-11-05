@@ -114,12 +114,19 @@ class DisplayPrefsNotifier extends Notifier<DisplayPrefs> {
 
   /// Hide or show every balance figure.
   Future<void> setHideBalances(bool hide) async {
+    await _ready;
+    if (!ref.mounted) return;
     state = state.copyWith(hideBalances: hide);
     await _storage.write(key: _keyHideBalances, value: hide.toString());
   }
 
-  /// Flip the hidden state — the Home readout's tap gesture.
-  Future<void> toggleHideBalances() => setHideBalances(!state.hideBalances);
+  /// Flip the hidden state — the Home readout's tap gesture. It flips the
+  /// loaded value, not the default that stood in before the read.
+  Future<void> toggleHideBalances() async {
+    await _ready;
+    if (!ref.mounted) return;
+    await setHideBalances(!state.hideBalances);
+  }
 
   /// Allow or forbid OS screen capture. Returns whether the choice took
   /// effect AND was stored.
@@ -165,5 +172,8 @@ final displayPrefsProvider =
         DisplayPrefsNotifier.new);
 
 /// Whether balances are hidden right now — the one thing most widgets need.
-final hideBalancesProvider = Provider<bool>(
-    (ref) => ref.watch(displayPrefsProvider.select((p) => p.hideBalances)));
+///
+/// Masked until the stored value has been read: after a restart with hiding
+/// on, the first frames must not show the holdings before the read lands.
+final hideBalancesProvider = Provider<bool>((ref) => ref.watch(
+    displayPrefsProvider.select((p) => !p.loaded || p.hideBalances)));
