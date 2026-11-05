@@ -274,7 +274,7 @@ class SecureStorageService {
   }
 
   /// The tail of the registry's write queue, shared by EVERY instance.
-  static Future<void> _registryTail = Future.value();
+  static Future<void> _registryTail = Zone.root.run(Future<void>.value);
 
   /// Run [body] as the only registry read-modify-write in flight.
   ///
@@ -283,15 +283,14 @@ class SecureStorageService {
   /// otherwise both succeed while the second erases the first's change: an
   /// added wallet missing from the list, or a rename undone. The queue is
   /// static because the app holds more than one storage instance.
-  /// Empty the queue. For a test that replaces the storage underneath it: a
-  /// widget test's fake clock abandons whatever it left in flight, and an
-  /// entry that never finishes would hold every later test's writer.
-  @visibleForTesting
-  static void resetRegistryQueue() => _registryTail = Future.value();
-
+  ///
+  /// The queue's own futures live in the root zone. A future runs its
+  /// listeners through the zone it was made in, so a link made inside one
+  /// caller's zone (a widget test's fake clock, which is abandoned when the
+  /// test ends) would hold every later writer that queues behind it.
   static Future<T> _mutateRegistry<T>(Future<T> Function() body) {
     final previous = _registryTail;
-    final done = Completer<void>();
+    final done = Zone.root.run(Completer<void>.new);
     _registryTail = done.future;
     return previous.then((_) => body()).whenComplete(done.complete);
   }
