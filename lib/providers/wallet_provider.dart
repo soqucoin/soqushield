@@ -497,6 +497,26 @@ class WalletNotifier extends Notifier<WalletState> {
   /// Every wallet on this device, for a list the owner can read.
   Future<List<WalletRecord>> listWallets() => _storageService.listWallets();
 
+  /// Rename a wallet on this device.
+  ///
+  /// Names are the only part of a wallet the owner writes, and the only
+  /// part they pick a wallet by. Nothing else about the wallet moves: no
+  /// key is touched, no partition changes, and the wallet that is open
+  /// stays open — a rename is not a switch.
+  Future<WalletRecord?> renameWallet(String id, String name) async {
+    try {
+      final record = await _storageService.renameWallet(id, name);
+      debugPrint('WALLETS: renamed ${record.id}');
+      return record;
+    } catch (e) {
+      debugPrint('WALLETS: rename failed: $e');
+      state = state.copyWith(
+          error: 'Could not rename the wallet: '
+              '${'$e'.replaceFirst('Exception: ', '')}');
+      return null;
+    }
+  }
+
   /// Restore wallet from existing mnemonic on the current network.
   Future<void> restoreFromMnemonic(String mnemonic) async {
     state = state.copyWith(isLoading: true, clearError: true);

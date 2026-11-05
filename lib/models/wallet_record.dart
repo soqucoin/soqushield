@@ -38,6 +38,48 @@ class WalletRecord {
   /// The id of the wallet that predates the registry.
   static const String primaryId = 'primary';
 
+  /// The longest a wallet name may be. Long enough to be descriptive, short
+  /// enough that a list row renders it whole rather than cutting it off
+  /// mid-word — a name the owner cannot read in full is a name they cannot
+  /// pick a wallet by.
+  static const int maxNameLength = 40;
+
+  /// What a wallet may actually be called.
+  ///
+  /// ⛔ THE NAME IS HOW THE OWNER PICKS WHICH WALLET SIGNS. It is the label
+  /// beside a balance and in a send confirmation, so a name that renders as
+  /// something other than what it is can send the wrong wallet's coins.
+  /// Three things are therefore taken out of it:
+  ///
+  ///  - bidirectional overrides (U+202A..U+202E, U+2066..U+2069), which
+  ///    reorder the characters AFTER them and can make one name draw as
+  ///    another entirely;
+  ///  - every other control character, which can blank or truncate a row;
+  ///  - runs of whitespace, collapsed to one space, so two names cannot
+  ///    differ only by padding that nothing renders.
+  ///
+  /// Tab, newline and carriage return are left to the whitespace pass on
+  /// purpose. Stripping them as control characters would JOIN the words
+  /// either side — "day\nto\nday" becoming "daytoday" — and a name that
+  /// runs two words together is harder to read than one with a space.
+  ///
+  /// Returns null when nothing usable is left, so the caller refuses rather
+  /// than storing a blank.
+  static String? cleanName(String raw) {
+    final stripped = raw.replaceAll(
+        RegExp(r'[\u0000-\u0008\u000E-\u001F\u007F-\u009F'
+                r'\u202A-\u202E\u2066-\u2069]'),
+        '');
+    final collapsed = stripped.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (collapsed.isEmpty) return null;
+    // Cut on code points, never on code units: half of a surrogate pair is
+    // not a character, and storing one would render as a replacement box.
+    final runes = collapsed.runes.toList();
+    if (runes.length <= maxNameLength) return collapsed;
+    final cut = String.fromCharCodes(runes.take(maxNameLength)).trim();
+    return cut.isEmpty ? null : cut;
+  }
+
   /// The one rule for turning a per-wallet storage key into a real one.
   ///
   /// ⛔ [primaryId] passes [flatKey] through UNCHANGED. Every partition that
@@ -95,9 +137,10 @@ class WalletRecord {
     if (address is! String || address.isEmpty) return null;
     return WalletRecord(
       id: id,
-      name: raw['name'] is String && (raw['name'] as String).trim().isNotEmpty
-          ? raw['name'] as String
-          : 'Wallet',
+      // Cleaned on the way in too: a registry written by an older build, or
+      // edited outside the app, must not put an unrenderable name on screen.
+      name: (raw['name'] is String ? cleanName(raw['name'] as String) : null) ??
+          'Wallet',
       address: address,
       network: SoqNetwork.values.firstWhere(
         (n) => n.name == raw['network'],
