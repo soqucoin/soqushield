@@ -24,6 +24,10 @@ import 'package:soqushield/screens/auth/lock_pilot_screen.dart';
 import 'package:soqushield/screens/home/home_pilot_screen.dart';
 import 'package:soqushield/services/weather_service.dart';
 
+import 'package:flutter/services.dart' show PlatformException;
+import 'package:local_auth/local_auth.dart';
+import 'package:soqushield/services/auth_service.dart';
+
 import 'lite_test_support.dart';
 
 const _mainnetAddress =
@@ -61,18 +65,49 @@ class _CountingWallet extends MockWalletNotifier {
   void clearKeyCache() => clears++;
 }
 
+/// The platform plugin refusing to run the check with [code].
+class _RefusingLocalAuth extends LocalAuthentication {
+  _RefusingLocalAuth(this.code);
+  final String code;
+  @override
+  Future<bool> authenticate({
+    required String localizedReason,
+    Iterable<Object> authMessages = const <Object>[],
+    AuthenticationOptions options = const AuthenticationOptions(),
+  }) async =>
+      throw PlatformException(code: code);
+}
+
+/// A device credential that reports a fixed [outcome] — used to drive the
+/// lock screen's "the OS could not run the check" branch.
+class _OutcomeAuthService extends FakeAuthService {
+  _OutcomeAuthService(this.result);
+  final AuthOutcome result;
+  @override
+  Future<AuthOutcome> authenticate() async {
+    prompts++;
+    return result;
+  }
+}
+
 /// A device credential that is asked for and never answers, so the lock
 /// screen stays where a test can see it.
 class _PendingAuthService extends FakeAuthService {
-  /// One completer per request, so a test can answer a request late.
-  final List<Completer<bool>> pending = [];
+  /// One completer per request, so a test can answer a request late. The
+  /// screen asks through [authenticate], so that is what records here.
+  final List<Completer<AuthOutcome>> pending = [];
+
   @override
-  Future<bool> authenticateWithBiometrics() {
+  Future<AuthOutcome> authenticate() {
     prompts++;
-    final c = Completer<bool>();
+    final c = Completer<AuthOutcome>();
     pending.add(c);
     return c.future;
   }
+
+  @override
+  Future<bool> authenticateWithBiometrics() async =>
+      (await authenticate()) == AuthOutcome.success;
 }
 
 Future<void> _microtasks() async {
@@ -378,19 +413,122 @@ void main() {
     expect(credential.prompts, 2, reason: 'a fresh request');
 
     // The dropped request answers late with a failure: ignored.
-    credential.pending[0].complete(false);
+    credential.pending[0].complete(AuthOutcome.failed);
     await t.pump();
     await t.pump();
     expect(find.text('AUTHENTICATION FAILED'), findsNothing);
     expect(find.byType(LockPilotScreen), findsOneWidget);
 
     // The fresh request succeeds: the wallet unlocks and the route leaves.
-    credential.pending[1].complete(true);
+    credential.pending[1].complete(AuthOutcome.success);
     await t.pump();
     for (var i = 0; i < 4; i++) {
       await t.pump(const Duration(milliseconds: 300));
     }
     expect(find.byType(LockPilotScreen), findsNothing);
     await t.pumpWidget(const SizedBox.shrink());
+  });
+
+  group('the OS declining to run the check is not a failed attempt', () {
+    late SessionNotifier session;
+    late ProviderContainer container;
+
+    Future<void> pumpLock(WidgetTester t, AuthOutcome outcome) async {
+      container = ProviderContainer(overrides: [
+        authProvider
+            .overrideWith(() => MockAuthNotifier(AuthStatus.locked)),
+        authServiceProvider
+            .overrideWithValue(_OutcomeAuthService(outcome)),
+        // The REAL session notifier, because the count is what is under test.
+        // Its inactivity timer only arms for a backed-up wallet, so this one
+        // is not — otherwise it outlives the test as a pending timer.
+        walletProvider.overrideWith(() => MockWalletNotifier(
+            _wallet().copyWith(backupConfirmed: false))),
+      ]);
+      addTearDown(container.dispose);
+      session = container.read(sessionProvider.notifier);
+      await t.pumpWidget(UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: LockPilotScreen()),
+      ));
+      await t.pump();
+      // The automatic prompt waits for a settled resumed lifecycle and then
+      // 350ms before it asks; pump past that or the screen never prompts.
+      await t.pump(const Duration(milliseconds: 500));
+      await t.pump();
+      // Replace the tree so the screen's own controllers are disposed before
+      // the pending-timer check runs.
+      addTearDown(() async {
+        await t.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+        await t.pump(const Duration(seconds: 2));
+      });
+    }
+
+    testWidgets('a biometric lockout burns no attempt and offers guidance',
+        (t) async {
+      await pumpLock(t, AuthOutcome.unavailable);
+
+      expect(container.read(sessionProvider).failedAttempts, 0,
+          reason: 'the platform already makes the owner wait; a second, '
+              'longer app-side backoff on top cannot be cleared by '
+              'presenting the right finger');
+      expect(session.isInLockout, isFalse);
+      // A credential is enrolled; the guidance is to wait and ask again,
+      // never to go and set up a screen lock.
+      expect(find.text('CHECK PAUSED'), findsOneWidget);
+      expect(find.text('NO SCREEN LOCK SET'), findsNothing);
+      expect(find.text('AUTHENTICATION FAILED'), findsNothing);
+    });
+
+    testWidgets('no credential to check shows the enrollment guidance',
+        (t) async {
+      await pumpLock(t, AuthOutcome.noCredential);
+
+      expect(container.read(sessionProvider).failedAttempts, 0);
+      expect(find.text('NO SCREEN LOCK SET'), findsOneWidget);
+      expect(find.text('CHECK PAUSED'), findsNothing);
+    });
+
+    testWidgets('a wrong finger still counts, as it must', (t) async {
+      await pumpLock(t, AuthOutcome.failed);
+
+      expect(container.read(sessionProvider).failedAttempts, 1,
+          reason: 'the brute-force backoff still has to exist');
+      expect(find.text('AUTHENTICATION FAILED'), findsOneWidget);
+    });
+  });
+
+  group('a platform refusal is classified by what it means', () {
+    Future<AuthOutcome> refusedWith(String code) =>
+        AuthService(localAuth: _RefusingLocalAuth(code)).authenticate();
+
+    test('a pending request or no activity is a check that cannot run now',
+        () async {
+      // The Android plugin throws these when it cannot start the prompt: a
+      // tap to unlock raised while the dropped request is still pending, or
+      // no foreground activity. No credential was checked.
+      for (final code in [
+        'auth_in_progress',
+        'no_activity',
+        'no_fragment_activity',
+        'LockedOut',
+        'PermanentlyLockedOut',
+      ]) {
+        expect(await refusedWith(code), AuthOutcome.unavailable,
+            reason: code);
+      }
+    });
+
+    test('no screen lock or nothing enrolled is a missing credential',
+        () async {
+      for (final code in ['NotAvailable', 'NotEnrolled', 'PasscodeNotSet']) {
+        expect(await refusedWith(code), AuthOutcome.noCredential,
+            reason: code);
+      }
+    });
+
+    test('an unknown error still counts as a failed attempt', () async {
+      expect(await refusedWith('SomethingElse'), AuthOutcome.failed);
+    });
   });
 }

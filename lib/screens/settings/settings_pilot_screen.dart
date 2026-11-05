@@ -8,6 +8,7 @@
 
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -18,6 +19,7 @@ import 'package:share_plus/share_plus.dart';
 import '../../theme/instrument.dart';
 import '../../theme/motion.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/display_prefs_provider.dart';
 import '../../providers/session_provider.dart';
 import '../../providers/wallet_provider.dart';
 import '../../models/wallet_keys.dart' show SoqNetwork;
@@ -61,6 +63,7 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
   Widget build(BuildContext context) {
     final wallet = ref.watch(walletProvider);
     final session = ref.watch(sessionProvider);
+    final prefs = ref.watch(displayPrefsProvider);
 
     return Scaffold(
       backgroundColor: Instrument.void0,
@@ -85,6 +88,20 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
                           .read(sessionProvider.notifier)
                           .setLockOnBackground(v)),
                   _timeoutTile(session),
+
+                  // ── PRIVACY & DISPLAY ──
+                  // NOT 'PRIVACY': the full app's PRIVACY section held the
+                  // shielded-transaction surfaces (privacy dashboard, view
+                  // key, coin control) that the lite build dropped, and a
+                  // scope pin asserts that exact header never returns. This
+                  // section is about what the screen shows, not about
+                  // confidential transactions. The web has no capture
+                  // control to offer, so the section is left out there.
+                  if (!kIsWeb) ...[
+                    _section('PRIVACY & DISPLAY'),
+                    _screenCaptureTile(prefs),
+                    _noteTile(_captureNote),
+                  ],
 
                   // ── BACKUP & KEYS ──
                   _section('BACKUP & KEYS'),
@@ -156,8 +173,11 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
 
   Future<void> _doExport(BuildContext ctx, String password, String confirm,
       Rect? shareOrigin) async {
-    if (password.length < 8) {
-      _showSnack('Password must be at least 8 characters');
+    // One rule, from the service that enforces it, so this check and
+    // BackupService.exportBackup cannot drift apart.
+    if (password.length < BackupService.minPasswordLength) {
+      _showSnack('Password must be at least '
+          '${BackupService.minPasswordLength} characters');
       return;
     }
     if (password != confirm) {
@@ -233,7 +253,8 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
                   style: TextStyle(
                       color: Instrument.faint, fontSize: 12, height: 1.5)),
               const SizedBox(height: 16),
-              _pwField(passwordCtrl, 'Password (8+ chars)'),
+              _pwField(passwordCtrl,
+                  'Password (${BackupService.minPasswordLength}+ chars)'),
               const SizedBox(height: 8),
               _pwField(confirmCtrl, 'Confirm password'),
             ],
@@ -352,6 +373,10 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
               // The auto-lock state first, so no timeout fires during the
               // wipe's awaits and writes a setting back after the delete.
               ref.read(sessionProvider.notifier).resetToDefaults();
+              // Capture back to protected, so the next wallet does not
+              // inherit this one's permission. Its stored key goes with
+              // the wipe below.
+              ref.read(displayPrefsProvider.notifier).resetToDefaults();
               await ref.read(walletProvider.notifier).wipeWallet();
               final authService = ref.read(authServiceProvider);
               await authService.clearAccount();
@@ -594,6 +619,48 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
           ),
         ),
       );
+
+  /// What the capture toggle actually does, per platform — the two are not
+  /// the same protection and the copy must not pretend otherwise. Read
+  /// through defaultTargetPlatform, which unlike dart:io's Platform answers
+  /// on the web too.
+  bool get _isIOS => defaultTargetPlatform == TargetPlatform.iOS;
+
+  String get _captureNote => _isIOS
+      ? 'iOS does not let any app block screenshots. This controls the blur '
+          'over the app in the app switcher. Your recovery phrase stays '
+          'covered either way.'
+      : 'Allowing capture also allows screen recording and casting — the '
+          'channel a remote-support scam uses to watch you open your wallet. '
+          'Your recovery phrase stays protected either way.';
+
+  Widget _screenCaptureTile(DisplayPrefs prefs) => _toggleTile(
+        Icons.screenshot_monitor_outlined,
+        _isIOS ? 'Allow app-switcher preview' : 'Allow screenshots',
+        _isIOS
+            ? 'Show the app unblurred when switching apps'
+            : 'Screenshots, screen recording and casting',
+        prefs.allowScreenCapture,
+        _setCapture,
+      );
+
+  /// A change that did not take, or was not stored, is said out loud with
+  /// a retry: the switch shows what the window does, and the owner has to
+  /// know when the stored choice differs from it.
+  Future<void> _setCapture(bool allow) async {
+    final ok = await ref
+        .read(displayPrefsProvider.notifier)
+        .setAllowScreenCapture(allow);
+    if (ok || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: const Text('The screenshot setting was not saved.',
+          style: TextStyle(color: Instrument.readout, fontSize: 13)),
+      backgroundColor: Instrument.void2,
+      behavior: SnackBarBehavior.floating,
+      action: SnackBarAction(
+          label: 'RETRY', onPressed: () => _setCapture(allow)),
+    ));
+  }
 
   Widget _timeoutTile(SessionConfig session) => _rowFrame(
         child: Row(

@@ -1,7 +1,37 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:local_auth/error_codes.dart' as auth_error;
 import 'package:local_auth/local_auth.dart';
 import 'secure_storage_service.dart' show kSharedSecureStorage;
+
+/// How an authentication attempt ended.
+///
+/// The distinction that matters is [unavailable]: the OS refusing to run the
+/// check AT ALL is not the user getting it wrong, and must not be counted as
+/// a failed attempt. The platform's own biometric lockout arrives this way —
+/// counting it would stack the app's backoff on top of the OS's, punishing
+/// someone twice for one mistake and pushing an owner toward a 30-minute wait
+/// they cannot clear by presenting the right finger.
+enum AuthOutcome {
+  /// The user authenticated.
+  success,
+
+  /// The check ran and did not succeed — a wrong finger/face, or the user
+  /// dismissing the prompt. local_auth reports both as a plain `false`, so
+  /// they cannot be told apart here.
+  failed,
+
+  /// The check could not run right now: the OS biometric API is locked out,
+  /// another request is still pending, or there is no foreground activity to
+  /// show it on. A credential exists; waiting and asking again is the way
+  /// forward. Never a failed attempt.
+  unavailable,
+
+  /// The check cannot run because the device has no credential to check: no
+  /// screen lock, or nothing enrolled. Never a failed attempt.
+  noCredential,
+}
 
 /// Manages local account persistence and biometric authentication.
 /// All data stays on-device in encrypted storage.
@@ -101,19 +131,57 @@ class AuthService {
   }
 
   /// Trigger Face ID / Touch ID. Returns true on success.
-  Future<bool> authenticateWithBiometrics() async {
-    if (kIsWeb) return true; // Skip on web
+  ///
+  /// The boolean form, for the call sites that only gate an action (a send, a
+  /// seed reveal, the biometric toggle) and have no backoff to protect. The
+  /// lock screen uses [authenticate] instead, because it has to tell a wrong
+  /// finger apart from the OS declining to ask.
+  Future<bool> authenticateWithBiometrics() async =>
+      (await authenticate()) == AuthOutcome.success;
+
+  /// Error codes for a check that could not start right now although a
+  /// credential exists. The last three are thrown by the Android plugin when
+  /// a request is already pending (a tap to unlock raised while the dropped
+  /// one has not stopped yet) or there is no activity to show the prompt on.
+  @visibleForTesting
+  static const notNow = {
+    auth_error.lockedOut,
+    auth_error.permanentlyLockedOut,
+    'auth_in_progress',
+    'no_activity',
+    'no_fragment_activity',
+  };
+
+  /// Error codes for a device with no credential to check.
+  @visibleForTesting
+  static const noCredentialCodes = {
+    auth_error.notAvailable,
+    auth_error.notEnrolled,
+    auth_error.passcodeNotSet,
+  };
+
+  /// Trigger Face ID / Touch ID, reporting HOW it ended.
+  Future<AuthOutcome> authenticate() async {
+    if (kIsWeb) return AuthOutcome.success; // Skip on web
     try {
-      return await _localAuth.authenticate(
+      final ok = await _localAuth.authenticate(
         localizedReason: 'Authenticate to access SoquShield',
         options: const AuthenticationOptions(
           stickyAuth: true,
           biometricOnly: false, // Allow passcode fallback
         ),
       );
+      return ok ? AuthOutcome.success : AuthOutcome.failed;
+    } on PlatformException catch (e) {
+      debugPrint('Biometric auth error: ${e.code}');
+      // The OS could not run the check. Its own lockout already makes the
+      // user wait; the app must not add a second, longer wait on top.
+      if (notNow.contains(e.code)) return AuthOutcome.unavailable;
+      if (noCredentialCodes.contains(e.code)) return AuthOutcome.noCredential;
+      return AuthOutcome.failed;
     } catch (e) {
       debugPrint('Biometric auth error: $e');
-      return false;
+      return AuthOutcome.failed;
     }
   }
 

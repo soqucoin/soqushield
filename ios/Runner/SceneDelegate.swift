@@ -16,7 +16,19 @@ class SceneDelegate: FlutterSceneDelegate {
   // a dark layer that swallowed every touch, which read as a black screen on
   // return until the app was relaunched. Every cover on every window of the
   // scene is removed on will-enter-foreground and on did-become-active.
+  //
+  // ⛔ iOS CANNOT BLOCK A SCREENSHOT. There is no equivalent of Android's
+  // FLAG_SECURE: an app can be notified one was taken, after the fact, and
+  // nothing else. The app-switcher snapshot is the ONLY capture surface iOS
+  // lets an app control, so that is all the owner's "allow screenshots"
+  // setting governs here — and the Settings copy says so rather than
+  // implying a protection the platform does not offer.
   private static let coverTag = 0xB10E
+
+  /// Whether the owner has allowed capture. Set from Dart (the capture
+  /// channel, registered in AppDelegate). Starts protected: the frames right
+  /// after a cold start are the ones most likely to be showing a balance.
+  static var captureAllowed = false
 
   private func sceneWindows(_ scene: UIScene) -> [UIWindow] {
     var windows: [UIWindow] = []
@@ -48,6 +60,7 @@ class SceneDelegate: FlutterSceneDelegate {
   // Called before the system takes the snapshot.
   override func sceneWillResignActive(_ scene: UIScene) {
     super.sceneWillResignActive(scene)
+    guard !SceneDelegate.captureAllowed else { return }
     addCover(scene)
   }
 
