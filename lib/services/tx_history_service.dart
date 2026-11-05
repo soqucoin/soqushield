@@ -69,10 +69,23 @@ class TxHistoryService {
     await save(existing);
   }
 
-  /// Clear all stored transactions (used on wallet wipe).
+  /// Clear the stored transactions of the CURRENT network partition.
   static Future<void> clear() async {
     final key = _key;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(key);
+  }
+
+  /// Clear every network's partition — for when the wallet these rows belong
+  /// to is being replaced, not merely left.
+  ///
+  /// ⛔ [clear] covers only the network that is open. The replaced wallet's
+  /// rows on the other network are still its rows, and a later switch would
+  /// read them into the new wallet's Activity feed.
+  static Future<void> clearAllNetworks() async {
+    final prefs = await SharedPreferences.getInstance();
+    for (final n in SoqNetwork.values) {
+      await prefs.remove('soqshield_tx_history_${n.name}');
+    }
   }
 }
