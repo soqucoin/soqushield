@@ -12,6 +12,7 @@ import 'package:soqushield/providers/auth_provider.dart';
 import 'package:soqushield/providers/session_provider.dart';
 import 'package:soqushield/providers/wallet_provider.dart';
 import 'package:soqushield/services/auth_service.dart';
+import 'package:soqushield/providers/display_prefs_provider.dart';
 
 /// The backing map of the mocked secure storage. Reset by [installSecureStorageMock].
 final Map<String, String> secureStore = {};
@@ -23,6 +24,10 @@ final List<String> secureStorageCalls = [];
 /// test can switch the network or wipe the wallet while a write is in flight.
 final Map<String, Completer<void>> secureStorageWriteHolds = {};
 
+/// A read of one of these keys waits on its completer before it answers, so
+/// a test can act while a stored preference is still loading.
+final Map<String, Completer<void>> secureStorageReadHolds = {};
+
 /// The next write to one of these keys is refused with a platform error (the
 /// key is removed from the set as it fires), so a test can fail a storage
 /// write once, mid-operation.
@@ -33,6 +38,7 @@ void installSecureStorageMock() {
   secureStore.clear();
   secureStorageCalls.clear();
   secureStorageWriteHolds.clear();
+  secureStorageReadHolds.clear();
   secureStorageWriteFailures.clear();
   TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .setMockMethodCallHandler(
@@ -42,6 +48,8 @@ void installSecureStorageMock() {
       secureStorageCalls.add('${call.method} ${args['key'] ?? ''}'.trim());
       switch (call.method) {
         case 'read':
+          final readHold = secureStorageReadHolds[args['key'] as String];
+          if (readHold != null) await readHold.future;
           return secureStore[args['key'] as String];
         case 'write':
           if (secureStorageWriteFailures.remove(args['key'] as String)) {
@@ -172,6 +180,31 @@ class MockWalletNotifier extends Notifier<WalletState> implements WalletNotifier
   void clearKeyCache() {}
   @override
   Future<void> setNetwork(network) async => state = state.copyWith(network: network);
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+/// Display preferences held fixed, touching no storage and no platform
+/// channel. The real notifier reads secure storage and then tells the native
+/// side about the capture rule, which a widget test must not do.
+final quietDisplayPrefs = displayPrefsProvider
+    .overrideWith(() => FixedDisplayPrefs(const DisplayPrefs(loaded: true)));
+
+class FixedDisplayPrefs extends Notifier<DisplayPrefs>
+    implements DisplayPrefsNotifier {
+  FixedDisplayPrefs(this._prefs);
+  final DisplayPrefs _prefs;
+  @override
+  DisplayPrefs build() => _prefs;
+  @override
+  Future<bool> setAllowScreenCapture(bool allow) async {
+    state = state.copyWith(allowScreenCapture: allow);
+    return true;
+  }
+
+  @override
+  Future<void> resetToDefaults() async =>
+      state = const DisplayPrefs(loaded: true);
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
 }
