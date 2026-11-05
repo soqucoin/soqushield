@@ -10,7 +10,10 @@ Pod::Spec.new do |s|
   s.author           = { 'Soqucoin Labs' => 'dev@soqu.org' }
   s.source           = { :path => '.' }
 
-  s.ios.deployment_target = '13.0'
+  # 15.0, matching ios/Podfile and the Runner project. Xcode 15+ refuses to
+  # build a simulator slice below 15.0 at all, so a pod left at 13.0 fails the
+  # whole build on a current toolchain — not just a warning.
+  s.ios.deployment_target = '15.0'
   s.static_framework = true
 
   s.source_files = 'native/dilithium/**/*.{c,h}'
