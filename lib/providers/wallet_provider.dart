@@ -183,6 +183,12 @@ class WalletNotifier extends Notifier<WalletState> {
     _utxoService = UtxoService(_rpcService);
     _txBuilder = TxBuilder(_rpcService, _utxoService);
 
+    // Both polls stop with the provider. SessionNotifier already does this
+    // for its inactivity timer; this one kept a periodic timer running past
+    // the container that owned it, which in the app is harmless only
+    // because the container lives as long as the app does.
+    ref.onDispose(_stopAutoRefresh);
+
     // Check for existing wallet on startup
     Future.microtask(() => _loadExistingWallet());
 

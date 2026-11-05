@@ -12,6 +12,7 @@ import 'screens/home/home_pilot_screen.dart';
 import 'screens/activity/activity_pilot_screen.dart';
 import 'screens/network/network_screen.dart';
 import 'screens/settings/settings_pilot_screen.dart';
+import 'screens/wallets/wallets_pilot_screen.dart';
 import 'screens/receive/receive_pilot_screen.dart';
 import 'screens/send/send_pilot_screen.dart';
 import 'screens/guide/guide_screen.dart';
@@ -95,6 +96,10 @@ final router = GoRouter(
     GoRoute(
       path: '/receive',
       builder: (context, state) => const ReceivePilotScreen(),
+    ),
+    GoRoute(
+      path: '/wallets',
+      builder: (context, state) => _mobileWrap(const WalletsPilotScreen()),
     ),
     GoRoute(
       path: '/settings',

@@ -86,6 +86,14 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
                           .setLockOnBackground(v)),
                   _timeoutTile(session),
 
+                  // ── WALLETS ──
+                  _section('WALLETS'),
+                  _navTile(
+                      Icons.account_balance_wallet_outlined,
+                      'Wallets on this device',
+                      'Add, rename, or open another wallet',
+                      () => context.push('/wallets')),
+
                   // ── BACKUP & KEYS ──
                   _section('BACKUP & KEYS'),
                   _navTile(Icons.vpn_key_outlined, 'Recovery phrase',
