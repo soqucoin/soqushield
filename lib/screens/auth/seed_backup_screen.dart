@@ -17,7 +17,6 @@ import 'package:go_router/go_router.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/session_provider.dart';
 import '../../providers/wallet_provider.dart';
-import '../../services/secure_storage_service.dart';
 import '../../theme/instrument.dart';
 import '../../widgets/seed_word_grid.dart';
 
@@ -55,7 +54,7 @@ class _SeedBackupScreenState extends ConsumerState<SeedBackupScreen> {
 
     // Seed was cleared from memory after backup — reload from storage
     try {
-      final storage = SecureStorageService();
+      final storage = ref.read(walletProvider.notifier).openWalletStorage();
       final mnemonic = await storage.readMnemonic();
       if (mnemonic != null && mnemonic.isNotEmpty) {
         setState(() => _loadedWords = mnemonic.split(' '));

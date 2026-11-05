@@ -15,6 +15,7 @@ import '../services/tx_builder.dart';
 import '../services/tx_parser.dart';
 import '../services/tx_history_service.dart';
 import 'auth_provider.dart';
+import 'session_provider.dart';
 
 // ═══════════════════════════════════════════
 //  Wallet Transaction Model (for Activity UI)
@@ -166,6 +167,30 @@ class WalletNotifier extends Notifier<WalletState> {
   /// writes nothing once it has moved on, so a reply from the old network
   /// never lands in the new network's state.
   int _refreshGeneration = 0;
+
+  /// True while the open wallet or its network is being replaced. The
+  /// services already point at the target while [state] still names the
+  /// previous wallet's address, so a refresh that began now would fetch for
+  /// one wallet and write into the other's partition: it does not begin.
+  bool _walletMoving = false;
+
+  /// The tail of the queue that opening a wallet, switching the network
+  /// and sending all run through, one at a time.
+  ///
+  /// ⛔ Each of these reads the open wallet's seed and writes under the open
+  /// wallet's scope. Interleaved, a network switch that read wallet A's seed
+  /// can store it over wallet B's once B is open, two opens can publish one
+  /// wallet's keys over the other's partitions, and a send that is still
+  /// deriving can put the closed wallet's signing key back in the cache
+  /// after the open cleared it.
+  Future<void> _walletOpTail = Future.value();
+
+  Future<T> _walletOp<T>(Future<T> Function() body) {
+    final previous = _walletOpTail;
+    final done = Completer<void>();
+    _walletOpTail = done.future;
+    return previous.then((_) => body()).whenComplete(done.complete);
+  }
 
   // SECURITY: Session-scoped keypair cache. Derived once from mnemonic on
   // first sign operation, then reused for the session. This avoids reading
@@ -345,6 +370,15 @@ class WalletNotifier extends Notifier<WalletState> {
         debugPrint('MIGRATION: Stale UTXO cache cleared, address updated');
       }
 
+      // The registry row follows the derived address and the network, so
+      // the wallet list and the duplicate check read what is open now.
+      try {
+        await _storageService.recordOpenWallet(
+            address: keys.address, network: network);
+      } catch (e) {
+        debugPrint('BOOT: registry row not updated: $e');
+      }
+
       // Load UTXO set (empty after migration, populated on first refresh)
       await _utxoService.load();
 
@@ -479,18 +513,28 @@ class WalletNotifier extends Notifier<WalletState> {
       if (!_keyService.validateMnemonic(words)) {
         throw Exception('Those words are not a valid recovery phrase');
       }
-      final keys = await _keyService.deriveFromMnemonic(
-        SeedPhrase(words: words.split(RegExp(r'\s+')), backupConfirmed: true),
-        network: state.network,
-      );
-      if ((await _storageService.knownAddresses()).contains(keys.address)) {
-        throw Exception('That wallet is already on this device');
+      final seed =
+          SeedPhrase(words: words.split(RegExp(r'\s+')), backupConfirmed: true);
+      final keys =
+          await _keyService.deriveFromMnemonic(seed, network: state.network);
+      // The phrase's address on EVERY network: a row records the address of
+      // the network its wallet was last on, which need not be this one.
+      final addressOn = <SoqNetwork, String>{state.network: keys.address};
+      for (final n in SoqNetwork.values) {
+        addressOn[n] ??=
+            (await _keyService.deriveFromMnemonic(seed, network: n)).address;
       }
+      // The duplicate check runs inside the registry queue, after the
+      // pre-registry wallet is adopted: a wallet created or restored moments
+      // ago has no row until then, and a check made before it would pass.
       final record = await _storageService.addWallet(
         name: name,
         mnemonic: words,
         keys: keys,
         network: state.network,
+        // The owner typed these words in: they have them.
+        backupConfirmed: true,
+        isSameWallet: (row) => row.address == addressOn[row.network],
       );
       debugPrint('WALLETS: imported ${record.id} on ${state.network.name}');
       return record;
@@ -546,14 +590,33 @@ class WalletNotifier extends Notifier<WalletState> {
           error: 'Set a screen lock on this device to switch wallets');
       return false;
     }
-    if (!await auth.authenticateWithBiometrics()) {
+    // The device-credential screen pauses the activity on Android; that
+    // pause is the app's own prompt, not the owner leaving, and must neither
+    // lock the app nor clear the key of the wallet still open.
+    final granted = await ref
+        .read(sessionProvider.notifier)
+        .whileSystemUi(auth.authenticateWithBiometrics);
+    if (!granted) {
       debugPrint('WALLETS: switch refused at the credential');
       return false;
     }
 
+    return _walletOp(() => _openWalletLocked(id));
+  }
+
+  Future<bool> _openWalletLocked(String id) async {
+    // Another open, a network switch or a send may have run while this one
+    // waited its turn: decide again against what is open now.
+    if (id == _storageService.walletId) return true;
+
+    final previousId = _storageService.walletId;
+    final previousNetwork = state.network;
+    var moved = false;
+
     state = state.copyWith(isLoading: true, clearError: true);
     try {
       // 2. Nothing in flight for the old wallet may land under the new one.
+      _walletMoving = true;
       _stopAutoRefresh();
       _refreshGeneration++;
       _parsedTxCache.clear();
@@ -563,6 +626,7 @@ class WalletNotifier extends Notifier<WalletState> {
 
       // 4. The pointer, then every service behind it.
       await _storageService.setActiveWallet(id);
+      moved = true;
       _applyWallet(id);
 
       // 5. This wallet's own network before anything is read or fetched.
@@ -581,6 +645,7 @@ class WalletNotifier extends Notifier<WalletState> {
       );
 
       await _utxoService.load();
+      final history = await TxHistoryService.load();
 
       state = WalletState(
         keys: keys,
@@ -589,17 +654,42 @@ class WalletNotifier extends Notifier<WalletState> {
         isInitialized: true,
         isLoading: false,
         balance: _utxoService.soqBalance,
-        recentTransactions: await TxHistoryService.load(),
+        recentTransactions: history,
       );
 
+      _walletMoving = false;
       _refreshBalance();
       _startAutoRefresh();
       debugPrint('WALLETS: opened $id on ${network.name}');
       return true;
     } catch (e) {
       debugPrint('WALLETS: open failed: $e');
+      // ⛔ Back to the wallet [state] still shows, all of it: the pointer,
+      // the scopes, the network and its coins. Polling on the old keys with
+      // the services left on the target would write one wallet's data into
+      // the other's partition, and a retry would find the target "open".
+      try {
+        if (moved) await _storageService.setActiveWallet(previousId);
+        _applyWallet(previousId);
+        _applyNetwork(previousNetwork);
+        _utxoService.setNetworkSync(previousNetwork);
+        await _utxoService.load();
+      } catch (rollback) {
+        // The previous wallet cannot be put back either. Fail closed: no
+        // keys, no polling, nothing to sign with; the next boot reads the
+        // pointer afresh.
+        debugPrint('WALLETS: rollback failed: $rollback');
+        _walletMoving = false;
+        state = WalletState(
+            isLoading: false,
+            error: 'Could not open that wallet. Restart the app.');
+        return false;
+      }
+      _walletMoving = false;
       state = state.copyWith(
-          isLoading: false, error: 'Could not open that wallet: $e');
+          isLoading: false,
+          balance: _utxoService.soqBalance,
+          error: 'Could not open that wallet: $e');
       _startAutoRefresh();
       return false;
     }
@@ -624,6 +714,16 @@ class WalletNotifier extends Notifier<WalletState> {
       return null;
     }
   }
+
+  /// A storage instance on the OPEN wallet's secrets, for a reader outside
+  /// this notifier: the recovery phrase screen and the encrypted export.
+  ///
+  /// ⛔ A plain `SecureStorageService()` is scoped to the primary wallet.
+  /// Reading the seed through one while another wallet is open shows, or
+  /// exports, a wallet the owner is not looking at, and confirming those
+  /// words would mark the open wallet backed up without its own.
+  SecureStorageService openWalletStorage() =>
+      SecureStorageService()..setWallet(_storageService.walletId);
 
   /// Restore wallet from existing mnemonic on the current network.
   Future<void> restoreFromMnemonic(String mnemonic) async {
@@ -703,11 +803,17 @@ class WalletNotifier extends Notifier<WalletState> {
   /// history.
   Future<void> syncActivity() async {
     if (state.address.isEmpty) return;
+    // A wallet opened or a network switched while the probe is awaited has
+    // retired this request: the refresh after it would start under the new
+    // generation with the old wallet's address still in [state].
+    final generation = _refreshGeneration;
     await _balanceService.getChainTip(); // throws on backend/connectivity failure
+    if (generation != _refreshGeneration) return;
     await _refreshBalance();
   }
 
   Future<void> _refreshBalance() async {
+    if (_walletMoving) return;
     final generation = _refreshGeneration;
     // True once a network switch has happened since this refresh started.
     bool stale() => generation != _refreshGeneration;
@@ -853,6 +959,15 @@ class WalletNotifier extends Notifier<WalletState> {
   Future<String> sendTransaction({
     required String toAddress,
     required double amount,
+  }) =>
+      // One at a time with opening a wallet and switching the network: the
+      // key derived below must belong to the wallet whose coins are spent,
+      // and must not land in the cache after a switch has cleared it.
+      _walletOp(() => _sendLocked(toAddress: toAddress, amount: amount));
+
+  Future<String> _sendLocked({
+    required String toAddress,
+    required double amount,
   }) async {
     if (!state.hasWallet) throw Exception('No wallet');
     // The send screen refuses before the credential on no chain tip; this is
@@ -974,7 +1089,9 @@ class WalletNotifier extends Notifier<WalletState> {
     try {
       if (previous != null) await previous.catchError((_) {});
       // Superseded while queued: a later request chose another network.
-      if (_switchTarget == network) await _switchTo(network);
+      if (_switchTarget == network) {
+        await _walletOp(() => _switchTo(network));
+      }
     } finally {
       if (identical(_switchInFlight, mine.future)) {
         _switchInFlight = null;
@@ -1001,6 +1118,7 @@ class WalletNotifier extends Notifier<WalletState> {
     _parsedTxCache.clear();
     final previous = state.network;
     _applyNetwork(network);
+    _walletMoving = true;
     try {
       await _utxoService.setNetwork(network);
 
@@ -1033,13 +1151,16 @@ class WalletNotifier extends Notifier<WalletState> {
             blockHeight: 0,
             recentTransactions: history,
           );
+          _walletMoving = false;
           _refreshBalance();
           _startAutoRefresh();
         }
       } else {
         state = state.copyWith(network: network);
       }
+      _walletMoving = false;
     } catch (e) {
+      _walletMoving = false;
       // A switch that fails (a storage write refused, a derivation error)
       // leaves nothing half-applied: the services return to the network the
       // state still names, and its poll resumes. The caller sees the error.
@@ -1234,6 +1355,13 @@ class WalletNotifier extends Notifier<WalletState> {
     _cachedPk = null;
   }
 
+  /// Every wallet id the registry names, the primary wallet always among
+  /// them. An unreadable registry still yields the primary wallet.
+  Future<List<String>> _registeredWalletIds() async => {
+        WalletRecord.primaryId,
+        for (final w in await _storageService.listWallets()) w.id,
+      }.toList();
+
   /// Wipe wallet from device. IRREVERSIBLE.
   Future<void> wipeWallet() async {
     _stopAutoRefresh();
@@ -1243,13 +1371,20 @@ class WalletNotifier extends Notifier<WalletState> {
     clearKeyCache(); // Zero secret key from memory FIRST
     // Every network's UTXO partition, through the instance that wrote them:
     // on iOS the two storage instances use different keychain accessibility,
-    // and the plugin's deleteAll matches only its own.
+    // and the plugin's deleteAll matches only its own. Every wallet's, read
+    // from the registry before the wipe below removes it.
     await _utxoService.clearAll();
+    await _utxoService.clearWallets(await _registeredWalletIds());
     await _storageService.wipeWallet(); // SS-10: deleteAll() also clears the XMSS vault seed
     await TxHistoryService.clear(); // F14
     await _wipeResidualPrefsData(); // SS-10: clear residual SharedPreferences data
     state = const WalletState();
   }
+
+  /// A history partition of a wallet added after the registry: the
+  /// [WalletRecord.scopeKey] prefix over the history key.
+  static final _walletHistoryKey =
+      RegExp(r'^soq_w_[^_]+_soqshield_tx_history_');
 
   /// SS-10: remove residual per-user data from SharedPreferences so a resold
   /// device carries nothing over to the next owner, across every network
@@ -1263,6 +1398,8 @@ class WalletNotifier extends Notifier<WalletState> {
   ///   - `soqshield_channels_<network>` (self-custody channels)
   ///   - `soq_sns_cache_<network>` (SNS name-resolution cache)
   ///   - `soqushield_quests_*` (quest/badge progress)
+  ///   - `soq_w_<id>_soqshield_tx_history_<network>` (every other wallet's
+  ///     history, on every network)
   Future<void> _wipeResidualPrefsData() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -1270,6 +1407,7 @@ class WalletNotifier extends Notifier<WalletState> {
           .getKeys()
           .where((k) =>
               k.startsWith('soqshield_tx_history_') ||
+              _walletHistoryKey.hasMatch(k) ||
               k.startsWith('soqshield_lightning_') ||
               k.startsWith('soqshield_channels_') ||
               k.startsWith('soq_sns_cache_') ||
