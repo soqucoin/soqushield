@@ -4,6 +4,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../models/utxo.dart';
 import '../models/transaction.dart';
 import '../models/wallet_keys.dart';
+import '../models/wallet_record.dart';
 import 'rpc_service.dart';
 import 'secure_storage_service.dart' show kSharedSecureStorage;
 
@@ -24,8 +25,23 @@ class UtxoService {
   /// Current network — determines storage partition.
   SoqNetwork _network;
 
-  /// Network-aware storage key to isolate UTXOs per network.
-  String get _storageKey => 'soq_utxo_set_${_network.name}';
+  /// Which wallet's coins this instance is holding.
+  ///
+  /// Defaults to the wallet that predates the registry, whose partition is
+  /// the un-prefixed key this service has always written. An instance that
+  /// is never told otherwise therefore behaves exactly as it did before.
+  String _walletId = WalletRecord.primaryId;
+
+  /// The partition: one per wallet, and one per network inside that.
+  ///
+  /// ⛔ The coin set is what the transaction builder selects inputs from. A
+  /// key that is not scoped to the open wallet hands one wallet another
+  /// wallet's outpoints, which it cannot sign for and must never try to.
+  String get _storageKey =>
+      WalletRecord.scopeKey(_walletId, 'soq_utxo_set_${_network.name}');
+
+  /// The wallet this instance is holding coins for.
+  String get walletId => _walletId;
 
   /// In-memory UTXO set.
   final List<Utxo> _utxos = [];
@@ -54,6 +70,30 @@ class UtxoService {
   /// [load] is called separately immediately after.
   void setNetworkSync(SoqNetwork network) {
     _network = network;
+  }
+
+  /// Open [walletId]'s partition, dropping the coins held for the previous
+  /// one and reading the new wallet's set.
+  ///
+  /// The in-memory set is cleared BEFORE the read, so a failed read leaves
+  /// no coin from the previous wallet behind to be offered as spendable.
+  Future<void> setWallet(String walletId) async {
+    if (walletId == _walletId) return;
+    _walletId = walletId;
+    _utxos.clear();
+    _reserved.clear();
+    await load();
+    debugPrint('UtxoService: Opened wallet $walletId '
+        '(${_utxos.length} UTXOs loaded)');
+  }
+
+  /// Point at [walletId] without reloading — use during boot when [load] is
+  /// called separately immediately after.
+  void setWalletSync(String walletId) {
+    if (walletId == _walletId) return;
+    _walletId = walletId;
+    _utxos.clear();
+    _reserved.clear();
   }
 
   /// All tracked UTXOs for the current wallet.
@@ -409,13 +449,20 @@ class UtxoService {
     await _storage.delete(key: _storageKey);
   }
 
-  /// Wipe every network's partition through this instance. Its items were
-  /// written with this instance's options, so a delete from here matches
-  /// them on every platform; a `deleteAll` from another instance may not.
+  /// Wipe every network's partition FOR THE OPEN WALLET through this
+  /// instance. Its items were written with this instance's options, so a
+  /// delete from here matches them on every platform; a `deleteAll` from
+  /// another instance may not.
+  ///
+  /// Scoped to the open wallet on purpose: this runs when a restore replaces
+  /// the wallet whose coins these are, and the other wallets on the device
+  /// are not being replaced.
   Future<void> clearAll() async {
     _utxos.clear();
     for (final n in SoqNetwork.values) {
-      await _storage.delete(key: 'soq_utxo_set_${n.name}');
+      await _storage.delete(
+        key: WalletRecord.scopeKey(_walletId, 'soq_utxo_set_${n.name}'),
+      );
     }
   }
 }

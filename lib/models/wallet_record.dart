@@ -38,6 +38,20 @@ class WalletRecord {
   /// The id of the wallet that predates the registry.
   static const String primaryId = 'primary';
 
+  /// The one rule for turning a per-wallet storage key into a real one.
+  ///
+  /// ⛔ [primaryId] passes [flatKey] through UNCHANGED. Every partition that
+  /// existed before the registry — the mnemonic, the cached coin set, the
+  /// transaction history — stays exactly where it was written, so bringing
+  /// the registry in moves no stored byte. Any wallet added afterwards gets
+  /// its own prefix and can never read or overwrite another wallet's.
+  ///
+  /// Every service that partitions by wallet calls THIS, so the rule cannot
+  /// drift apart between them: two services disagreeing about where a
+  /// wallet's data lives is how one wallet comes to spend another's coins.
+  static String scopeKey(String walletId, String flatKey) =>
+      walletId == primaryId ? flatKey : 'soq_w_${walletId}_$flatKey';
+
   const WalletRecord({
     required this.id,
     required this.name,

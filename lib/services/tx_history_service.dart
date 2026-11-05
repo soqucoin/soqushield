@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/wallet_keys.dart';
+import '../models/wallet_record.dart';
 import '../providers/wallet_provider.dart';
 
 /// F14: Persists transaction history across app restarts.
@@ -13,13 +14,34 @@ class TxHistoryService {
   /// Current network — determines storage partition.
   static SoqNetwork _network = SoqNetwork.mainnet;
 
-  /// Network-aware storage key to isolate tx history per network.
-  static String get _key => 'soqshield_tx_history_${_network.name}';
+  /// Which wallet's history is being read and written.
+  ///
+  /// Defaults to the wallet that predates the registry, whose partition is
+  /// the un-prefixed key this service has always written.
+  static String _walletId = WalletRecord.primaryId;
+
+  /// The partition: one per wallet, and one per network inside that.
+  ///
+  /// A history that is not scoped to the open wallet shows one wallet the
+  /// other's transaction ids, which are the addresses it has paid.
+  static String get _key => WalletRecord.scopeKey(
+        _walletId,
+        'soqshield_tx_history_${_network.name}',
+      );
 
   /// Switch network partition.
   static void setNetwork(SoqNetwork network) {
     _network = network;
   }
+
+  /// Switch wallet partition. The rows already in memory belong to the
+  /// caller; this only moves where the next read and write land.
+  static void setWallet(String walletId) {
+    _walletId = walletId;
+  }
+
+  /// The wallet whose history is being read and written.
+  static String get walletId => _walletId;
 
   /// Save a list of transactions to persistent storage.
   ///

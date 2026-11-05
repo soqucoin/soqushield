@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/wallet_keys.dart';
 import '../models/utxo.dart';
+import '../models/wallet_record.dart';
 import '../services/balance_service.dart';
 import '../services/key_service.dart';
 import '../services/rpc_service.dart';
@@ -232,6 +233,34 @@ class WalletNotifier extends Notifier<WalletState> {
     state = state.copyWith(mainnetSwitchNotice: false);
   }
 
+  /// Point the cached coin set and the history at [walletId]'s partition.
+  ///
+  /// ⛔ Call this BEFORE either is read. The coin set feeds input selection,
+  /// so reading it under the wrong wallet offers outputs this wallet holds
+  /// no key for, and the history under the wrong wallet is another wallet's
+  /// payment record.
+  ///
+  /// Synchronous on both: the caller loads immediately afterwards.
+  void _applyWallet(String walletId) {
+    _utxoService.setWalletSync(walletId);
+    TxHistoryService.setWallet(walletId);
+  }
+
+  /// Which wallet's partitions the services are pointed at. Resolves the
+  /// pre-registry wallet to [WalletRecord.primaryId], whose partitions are
+  /// the un-prefixed keys this app has always written.
+  Future<String> _resolveActiveWallet() async {
+    try {
+      await _storageService.adoptExistingWallet();
+      return await _storageService.activeWalletId() ?? WalletRecord.primaryId;
+    } catch (e) {
+      // A registry that cannot be read must not keep the wallet shut. The
+      // pre-registry partitions are the ones a single-wallet device has.
+      debugPrint('BOOT: registry unreadable, opening the primary wallet: $e');
+      return WalletRecord.primaryId;
+    }
+  }
+
   /// Load existing wallet from secure storage.
   Future<void> _loadExistingWallet() async {
     try {
@@ -270,6 +299,11 @@ class WalletNotifier extends Notifier<WalletState> {
         network: network,
         accountIndex: accountIndex,
       );
+
+      // The partitions follow the OPEN WALLET before anything is read from
+      // them or cleared — the clear below drops the coin set, and it must
+      // drop the open wallet's.
+      _applyWallet(await _resolveActiveWallet());
 
       // ── Stored address differs from the derived one ──
       // Either the key derivation algorithm changed (Round 3 → FIPS 204) or
@@ -358,6 +392,7 @@ class WalletNotifier extends Notifier<WalletState> {
       await _storageService.markMainnetSwitch(moved: false);
 
       _applyNetwork(state.network);
+      _applyWallet(WalletRecord.primaryId);
       _utxoService.setNetworkSync(state.network);
 
       state = WalletState(
@@ -416,6 +451,7 @@ class WalletNotifier extends Notifier<WalletState> {
       await _storageService.markMainnetSwitch(moved: false);
 
       _applyNetwork(state.network);
+      _applyWallet(WalletRecord.primaryId);
       _utxoService.setNetworkSync(state.network);
 
       state = WalletState(
