@@ -338,6 +338,15 @@ class WalletNotifier extends Notifier<WalletState> {
         debugPrint('MIGRATION: Stale UTXO cache cleared, address updated');
       }
 
+      // The registry row follows the derived address and the network, so
+      // the wallet list and the duplicate check read what is open now.
+      try {
+        await _storageService.recordOpenWallet(
+            address: keys.address, network: network);
+      } catch (e) {
+        debugPrint('BOOT: registry row not updated: $e');
+      }
+
       // Load UTXO set (empty after migration, populated on first refresh)
       await _utxoService.load();
 
@@ -472,18 +481,28 @@ class WalletNotifier extends Notifier<WalletState> {
       if (!_keyService.validateMnemonic(words)) {
         throw Exception('Those words are not a valid recovery phrase');
       }
-      final keys = await _keyService.deriveFromMnemonic(
-        SeedPhrase(words: words.split(RegExp(r'\s+')), backupConfirmed: true),
-        network: state.network,
-      );
-      if ((await _storageService.knownAddresses()).contains(keys.address)) {
-        throw Exception('That wallet is already on this device');
+      final seed =
+          SeedPhrase(words: words.split(RegExp(r'\s+')), backupConfirmed: true);
+      final keys =
+          await _keyService.deriveFromMnemonic(seed, network: state.network);
+      // The phrase's address on EVERY network: a row records the address of
+      // the network its wallet was last on, which need not be this one.
+      final addressOn = <SoqNetwork, String>{state.network: keys.address};
+      for (final n in SoqNetwork.values) {
+        addressOn[n] ??=
+            (await _keyService.deriveFromMnemonic(seed, network: n)).address;
       }
+      // The duplicate check runs inside the registry queue, after the
+      // pre-registry wallet is adopted: a wallet created or restored moments
+      // ago has no row until then, and a check made before it would pass.
       final record = await _storageService.addWallet(
         name: name,
         mnemonic: words,
         keys: keys,
         network: state.network,
+        // The owner typed these words in: they have them.
+        backupConfirmed: true,
+        isSameWallet: (row) => row.address == addressOn[row.network],
       );
       debugPrint('WALLETS: imported ${record.id} on ${state.network.name}');
       return record;
@@ -516,6 +535,16 @@ class WalletNotifier extends Notifier<WalletState> {
       return null;
     }
   }
+
+  /// A storage instance on the OPEN wallet's secrets, for a reader outside
+  /// this notifier: the recovery phrase screen and the encrypted export.
+  ///
+  /// ⛔ A plain `SecureStorageService()` is scoped to the primary wallet.
+  /// Reading the seed through one while another wallet is open shows, or
+  /// exports, a wallet the owner is not looking at, and confirming those
+  /// words would mark the open wallet backed up without its own.
+  SecureStorageService openWalletStorage() =>
+      SecureStorageService()..setWallet(_storageService.walletId);
 
   /// Restore wallet from existing mnemonic on the current network.
   Future<void> restoreFromMnemonic(String mnemonic) async {
@@ -1109,6 +1138,13 @@ class WalletNotifier extends Notifier<WalletState> {
     _cachedPk = null;
   }
 
+  /// Every wallet id the registry names, the primary wallet always among
+  /// them. An unreadable registry still yields the primary wallet.
+  Future<List<String>> _registeredWalletIds() async => {
+        WalletRecord.primaryId,
+        for (final w in await _storageService.listWallets()) w.id,
+      }.toList();
+
   /// Wipe wallet from device. IRREVERSIBLE.
   Future<void> wipeWallet() async {
     _stopAutoRefresh();
@@ -1118,13 +1154,20 @@ class WalletNotifier extends Notifier<WalletState> {
     clearKeyCache(); // Zero secret key from memory FIRST
     // Every network's UTXO partition, through the instance that wrote them:
     // on iOS the two storage instances use different keychain accessibility,
-    // and the plugin's deleteAll matches only its own.
+    // and the plugin's deleteAll matches only its own. Every wallet's, read
+    // from the registry before the wipe below removes it.
     await _utxoService.clearAll();
+    await _utxoService.clearWallets(await _registeredWalletIds());
     await _storageService.wipeWallet(); // SS-10: deleteAll() also clears the XMSS vault seed
     await TxHistoryService.clear(); // F14
     await _wipeResidualPrefsData(); // SS-10: clear residual SharedPreferences data
     state = const WalletState();
   }
+
+  /// A history partition of a wallet added after the registry: the
+  /// [WalletRecord.scopeKey] prefix over the history key.
+  static final _walletHistoryKey =
+      RegExp(r'^soq_w_[^_]+_soqshield_tx_history_');
 
   /// SS-10: remove residual per-user data from SharedPreferences so a resold
   /// device carries nothing over to the next owner, across every network
@@ -1138,6 +1181,8 @@ class WalletNotifier extends Notifier<WalletState> {
   ///   - `soqshield_channels_<network>` (self-custody channels)
   ///   - `soq_sns_cache_<network>` (SNS name-resolution cache)
   ///   - `soqushield_quests_*` (quest/badge progress)
+  ///   - `soq_w_<id>_soqshield_tx_history_<network>` (every other wallet's
+  ///     history, on every network)
   Future<void> _wipeResidualPrefsData() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -1145,6 +1190,7 @@ class WalletNotifier extends Notifier<WalletState> {
           .getKeys()
           .where((k) =>
               k.startsWith('soqshield_tx_history_') ||
+              _walletHistoryKey.hasMatch(k) ||
               k.startsWith('soqshield_lightning_') ||
               k.startsWith('soqshield_channels_') ||
               k.startsWith('soq_sns_cache_') ||

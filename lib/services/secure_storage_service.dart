@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
@@ -121,6 +122,14 @@ class SecureStorageService {
   }) async {
     await _writeSecrets(_walletId,
         mnemonic: mnemonic, keys: keys, network: network);
+    // The registry row follows: a restore, a network switch and the boot
+    // migration all land here, and a row left on the old address shows a
+    // stale address and lets an import of the same phrase through.
+    try {
+      await recordOpenWallet(address: keys.address, network: network);
+    } catch (e) {
+      debugPrint('SecureStorage: registry row not updated: $e');
+    }
   }
 
   /// Write one wallet's secrets under [id]'s namespace.
@@ -174,7 +183,7 @@ class SecureStorageService {
 
   /// Store the network alone, for the one-time move to Mainnet at boot.
   Future<void> writeNetwork(SoqNetwork network) async {
-    await _storage.write(key: _keyNetwork, value: network.name);
+    await _storage.write(key: _k(_keyNetwork), value: network.name);
   }
 
   /// The one-time move to Mainnet: null when it has not been decided on this
@@ -242,6 +251,45 @@ class SecureStorageService {
     }
   }
 
+  /// The registry as a WRITER must see it: a storage read that fails throws
+  /// instead of reading as empty. A writer that took a failed read for an
+  /// empty registry would replace every wallet in it with its one row.
+  ///
+  /// Content that is there but cannot be decoded holds no row anyone can
+  /// read, so it reads as empty and the next write repairs it, as before.
+  Future<List<WalletRecord>> _readRegistryForWrite() async {
+    final raw = await _storage.read(key: _keyRegistry);
+    if (raw == null || raw.isEmpty) return [];
+    final Object? decoded;
+    try {
+      decoded = json.decode(raw);
+    } on FormatException catch (e) {
+      debugPrint('SecureStorage: registry undecodable, rewriting it: $e');
+      return [];
+    }
+    if (decoded is! List) return [];
+    return [
+      for (final row in decoded) ?WalletRecord.fromJson(row),
+    ];
+  }
+
+  /// The tail of the registry's write queue, shared by EVERY instance.
+  static Future<void> _registryTail = Future.value();
+
+  /// Run [body] as the only registry read-modify-write in flight.
+  ///
+  /// ⛔ Every change to the registry goes through here. Two writers that each
+  /// read the list, change their row and write the whole list back would
+  /// otherwise both succeed while the second erases the first's change: an
+  /// added wallet missing from the list, or a rename undone. The queue is
+  /// static because the app holds more than one storage instance.
+  static Future<T> _mutateRegistry<T>(Future<T> Function() body) {
+    final previous = _registryTail;
+    final done = Completer<void>();
+    _registryTail = done.future;
+    return previous.then((_) => body()).whenComplete(done.complete);
+  }
+
   Future<void> _writeRegistry(List<WalletRecord> wallets) async {
     await _storage.write(
       key: _keyRegistry,
@@ -250,9 +298,12 @@ class SecureStorageService {
   }
 
   /// Add [record], or replace the entry that already carries its id.
-  Future<void> putWallet(WalletRecord record) async {
-    // A growable copy: listWallets may hand back a fixed-length list.
-    final wallets = List<WalletRecord>.of(await listWallets());
+  Future<void> putWallet(WalletRecord record) =>
+      _mutateRegistry(() => _putWalletLocked(record));
+
+  /// [putWallet] for a caller already holding the registry queue.
+  Future<void> _putWalletLocked(WalletRecord record) async {
+    final wallets = await _readRegistryForWrite();
     final i = wallets.indexWhere((w) => w.id == record.id);
     if (i >= 0) {
       wallets[i] = record;
@@ -261,6 +312,23 @@ class SecureStorageService {
     }
     await _writeRegistry(wallets);
   }
+
+  /// Bring the open wallet's row up to [address] on [network], keeping its
+  /// id, name and creation date. A no-op when the wallet has no row yet
+  /// (adoption reads the stored values) or the row already says so.
+  Future<void> recordOpenWallet({
+    required String address,
+    required SoqNetwork network,
+  }) =>
+      _mutateRegistry(() async {
+        final wallets = await _readRegistryForWrite();
+        final i = wallets.indexWhere((w) => w.id == _walletId);
+        if (i < 0) return;
+        final row = wallets[i];
+        if (row.address == address && row.network == network) return;
+        wallets[i] = row.copyWith(address: address, network: network);
+        await _writeRegistry(wallets);
+      });
 
   /// The wallet currently open, or null when there is none.
   ///
@@ -275,13 +343,14 @@ class SecureStorageService {
   }
 
   /// Open [id]. Refuses an id the registry does not carry.
-  Future<void> setActiveWallet(String id) async {
-    final wallets = await listWallets();
-    if (!wallets.any((w) => w.id == id)) {
-      throw ArgumentError.value(id, 'id', 'no such wallet in the registry');
-    }
-    await _storage.write(key: _keyActiveWallet, value: id);
-  }
+  Future<void> setActiveWallet(String id) => _mutateRegistry(() async {
+        final wallets = await _readRegistryForWrite();
+        if (!wallets.any((w) => w.id == id)) {
+          throw ArgumentError.value(
+              id, 'id', 'no such wallet in the registry');
+        }
+        await _storage.write(key: _keyActiveWallet, value: id);
+      });
 
   /// A wallet id that is not [WalletRecord.primaryId] and that no wallet on
   /// this device already carries.
@@ -314,11 +383,22 @@ class SecureStorageService {
   ///
   /// ⛔ DOES NOT OPEN IT. The active wallet is unchanged: opening one is a
   /// separate act, and it is gated on the device credential.
+  ///
+  /// [isSameWallet] is asked about every row once the pre-registry wallet
+  /// is adopted, inside the registry queue, so a duplicate cannot slip in
+  /// beside a wallet still being adopted or added. A match throws
+  /// [DuplicateWalletException] before any secret is written. Without it,
+  /// a row on the same address is the duplicate.
+  ///
+  /// [backupConfirmed] is written with the secrets, under the new wallet's
+  /// own id: the open wallet's flag is not touched.
   Future<WalletRecord> addWallet({
     required String name,
     required String mnemonic,
     required WalletKeys keys,
     required SoqNetwork network,
+    bool backupConfirmed = false,
+    bool Function(WalletRecord row)? isSameWallet,
   }) async {
     if (mnemonic.trim().isEmpty) {
       throw ArgumentError.value(mnemonic, 'mnemonic', 'is empty');
@@ -328,20 +408,30 @@ class SecureStorageService {
     // second one joins it, or it is the one wallet with no entry.
     await adoptExistingWallet();
 
-    final wallets = await listWallets();
-    final id = _freshWalletId(wallets.map((w) => w.id).toSet());
+    return _mutateRegistry(() async {
+      final wallets = await _readRegistryForWrite();
+      final same = isSameWallet ?? (row) => row.address == keys.address;
+      if (wallets.any(same)) throw const DuplicateWalletException();
 
-    await _writeSecrets(id, mnemonic: mnemonic, keys: keys, network: network);
+      final id = _freshWalletId(wallets.map((w) => w.id).toSet());
 
-    final record = WalletRecord(
-      id: id,
-      name: name.trim().isEmpty ? 'Wallet' : name.trim(),
-      address: keys.address,
-      network: network,
-      createdAt: DateTime.now(),
-    );
-    await putWallet(record);
-    return record;
+      await _writeSecrets(id,
+          mnemonic: mnemonic, keys: keys, network: network);
+      if (backupConfirmed) {
+        await _storage.write(
+            key: _scoped(id, _keyBackupConfirmed), value: 'true');
+      }
+
+      final record = WalletRecord(
+        id: id,
+        name: name.trim().isEmpty ? 'Wallet' : name.trim(),
+        address: keys.address,
+        network: network,
+        createdAt: DateTime.now(),
+      );
+      await _putWalletLocked(record);
+      return record;
+    });
   }
 
   /// Give [id] a new name, keeping everything else about the wallet.
@@ -392,27 +482,40 @@ class SecureStorageService {
   ///
   /// The adopted wallet keeps the original keys, so an interrupted run
   /// leaves the wallet itself exactly as it was.
-  Future<void> adoptExistingWallet({String name = 'Main wallet'}) async {
-    if (!await hasWallet()) return;
+  ///
+  /// It reads the PRIMARY wallet's keys whichever wallet this instance is
+  /// open on: the wallet it adopts is the one at the un-prefixed keys.
+  Future<void> adoptExistingWallet({String name = 'Main wallet'}) =>
+      _mutateRegistry(() => _adoptLocked(name));
 
-    var wallets = await listWallets();
+  Future<void> _adoptLocked(String name) async {
+    final mnemonic = await _storage.read(key: _keyMnemonic);
+    if (mnemonic == null || mnemonic.isEmpty) return;
+
+    var wallets = await _readRegistryForWrite();
 
     if (wallets.isEmpty) {
-      final address = await readAddress();
+      final address = await _storage.read(key: _keyAddress);
       if (address == null || address.isEmpty) return;
 
       final created = DateTime.tryParse(
               await _storage.read(key: _keyCreatedAt) ?? '') ??
           DateTime.now();
+      final networkName = await _storage.read(key: _keyNetwork);
 
-      await putWallet(WalletRecord(
-        id: WalletRecord.primaryId,
-        name: name,
-        address: address,
-        network: await readNetwork(),
-        createdAt: created,
-      ));
-      wallets = await listWallets();
+      wallets = [
+        WalletRecord(
+          id: WalletRecord.primaryId,
+          name: name,
+          address: address,
+          network: SoqNetwork.values.firstWhere(
+            (n) => n.name == networkName,
+            orElse: () => SoqNetwork.stagenet,
+          ),
+          createdAt: created,
+        ),
+      ];
+      await _writeRegistry(wallets);
     }
 
     // A pointer that names a wallet still in the registry is the owner's
@@ -488,4 +591,11 @@ class SecureStorageService {
     'soq_social_display_name',
     'soq_pending_swap_v1',
   ];
+}
+
+/// The wallet being added is already on this device.
+class DuplicateWalletException implements Exception {
+  const DuplicateWalletException();
+  @override
+  String toString() => 'That wallet is already on this device';
 }

@@ -10,6 +10,7 @@
 // The wallet that predates the registry keeps the un-prefixed keys. Nothing
 // stored before the registry moves, so there is no migration to half-finish.
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -147,6 +148,45 @@ void main() {
       await svc.addUtxo(_coin('aa', 5.0));
       expect(svc.walletId, WalletRecord.primaryId);
       expect(secureStore.keys, contains('soq_utxo_set_mainnet'));
+    });
+
+    test('a read still pending when the wallet moves publishes nothing',
+        () async {
+      // A's coin carries a stale asset tag, so a published load would also
+      // heal it and SAVE, into whichever partition is open by then.
+      secureStore['soq_utxo_set_mainnet'] = jsonEncode([
+        _coin('aa', 5.0).copyWith(assetType: AssetType.usdsoq).toJson(),
+      ]);
+      final svc = UtxoService(_OfflineRpc(), network: SoqNetwork.mainnet);
+      final hold = Completer<void>();
+      secureStorageReadHolds['soq_utxo_set_mainnet'] = hold;
+
+      final pending = svc.load();
+      await Future<void>.delayed(Duration.zero);
+      await svc.setWallet('w2');
+      hold.complete();
+      await pending;
+
+      expect(svc.walletId, 'w2');
+      expect(svc.utxos, isEmpty,
+          reason: "the first wallet's outputs are not the second's to spend");
+      expect(secureStore['soq_w_w2_soq_utxo_set_mainnet'], isNull,
+          reason: "nor are they healed into the second wallet's partition");
+    });
+
+    test("a device-wide clear takes every named wallet's coins", () async {
+      final svc = UtxoService(_OfflineRpc(), network: SoqNetwork.mainnet);
+      await svc.addUtxo(_coin('aa', 5.0));
+      await svc.setWallet('w2');
+      await svc.addUtxo(_coin('bb', 2.0));
+      await svc.setNetwork(SoqNetwork.stagenet);
+      await svc.addUtxo(_coin('cc', 1.0));
+
+      await svc.clearWallets([WalletRecord.primaryId, 'w2']);
+
+      expect(secureStore.keys.where((k) => k.contains('soq_utxo_set_')),
+          isEmpty);
+      expect(svc.utxos, isEmpty);
     });
 
     test('opening the wallet already open reloads nothing', () async {
