@@ -89,21 +89,36 @@ class TxBuilder {
     final feeRateSoqPerKb = feePerKb ?? await _estimateFee();
     // Convert to satoshis/kB for integer arithmetic
     final feeRateSatPerKb = (feeRateSoqPerKb * 100000000).round();
-    
-    // Estimate tx size for fee calculation:
-    // Base tx overhead: ~10 bytes (version + locktime + vin/vout counts)
-    // Each input: ~3746 bytes (txid:32 + vout:4 + scriptSig:~3732 + seq:4)
-    //   scriptSig = push(sig:2420) + push(pubkey:1312) = ~3734 + varint headers
-    // Each output: ~34 bytes (value:8 + scriptPubKey:~26)
-    // PQ transactions are significantly larger than ECDSA ones
-    final estimatedInputs = 2; // Conservative estimate
-    final estimatedSize = 10 + (estimatedInputs * 3750) + (2 * 34);
-    // Fee = (rate_sat_per_kB * size_bytes) / 1000, floor at minrelaytxfee
-    var feeSat = ((feeRateSatPerKb * estimatedSize) / 1000).ceil();
-    // Ensure fee meets minrelaytxfee (0.001 SOQ/kB = 100,000 sat/kB)
-    // For a ~4kB Dilithium TX, minimum = ~400,000 sat = 0.004 SOQ
-    final minFeeSat = ((100000 * estimatedSize) / 1000).ceil();
-    if (feeSat < minFeeSat) feeSat = minFeeSat;
+
+    /// The fee, in koinu, a transaction with [inputCount] inputs and
+    /// [outputCount] outputs would pay — floored at minrelaytxfee.
+    ///
+    /// ⛔ THE SINGLE SOURCE OF FEE TRUTH for this send. Selection, the change
+    /// arithmetic and the amount actually deducted all read THIS, so they
+    /// cannot disagree. They used to: selection priced a guessed two inputs
+    /// and the builder then re-priced the real count, which is how a wallet
+    /// with enough money could be told it had none.
+    int feeFor(int inputCount, int outputCount) {
+      // Base tx overhead: ~10 bytes (version + locktime + vin/vout counts)
+      // Each input: ~3,750 bytes (txid:32 + vout:4 + scriptSig:~3,734 + seq:4)
+      //   scriptSig = push(sig:2420) + push(pubkey:1312) + varint headers
+      // Each output: ~34 bytes (value:8 + scriptPubKey:~26)
+      // PQ transactions are far larger than ECDSA ones — an input costs about
+      // 375,000 koinu of fee at the floor, which is why the count matters.
+      final size = 10 + (inputCount * 3750) + (outputCount * 34);
+      final atRate = ((feeRateSatPerKb * size) / 1000).ceil();
+      // minrelaytxfee = 0.001 SOQ/kB = 100,000 koinu/kB.
+      final floor = ((100000 * size) / 1000).ceil();
+      return atRate < floor ? floor : atRate;
+    }
+
+    // The output count selection prices against. A send is recipient + change;
+    // a USDSOQ send is USDSOQ recipient + USDSOQ change + SOQ change. Pricing
+    // for the maximum the branch can emit never under-collects — a dropped
+    // dust change output only leaves the fee slightly over-funded, which the
+    // change arithmetic below then settles exactly.
+    final isUsdsoq = assetType == AssetType.usdsoq;
+    final outputCount = isUsdsoq ? 3 : 2;
 
     // 2. Select UTXOs. USDSOQ requires ASSET ISOLATION: the USDSOQ inputs fund
     // the USDSOQ recipient + USDSOQ change and must be CONSERVED exactly
@@ -111,30 +126,52 @@ class TxBuilder {
     // with SOQ change. (Mirrors the signer's BuildSendUSDSOQTransaction. The old
     // single-asset path deducted the SOQ fee out of the USDSOQ value → a
     // non-conserving tx the node rejects — and crashed pre-fix nodes.)
-    final isUsdsoq = assetType == AssetType.usdsoq;
     final List<Utxo> selected;
     List<Utxo> usdsoqInputs = const [];
     List<Utxo> soqFeeInputs = const [];
     if (isUsdsoq) {
-      final u = _utxoService.selectUtxos(amountSat, 0, assetType: AssetType.usdsoq);
+      // USDSOQ inputs carry no fee of their own — the fee is SOQ-side — but
+      // they DO add to the transaction's size, so the SOQ selection below is
+      // priced for the combined input count.
+      final u = _utxoService.selectUtxos(amountSat, 0,
+          assetType: AssetType.usdsoq);
       if (u == null) {
         throw InsufficientFundsException(
           available: _utxoService.usdsoqBalance, requested: amountSoq);
       }
-      final s = _utxoService.selectUtxos(feeSat, 0, assetType: AssetType.soq);
+      final s = _utxoService.selectUtxosForVariableFee(
+        0,
+        (soqCount) => feeFor(u.length + soqCount, outputCount),
+        assetType: AssetType.soq,
+      );
       if (s == null) {
+        // Selection failed having consumed every spendable SOQ coin, so the
+        // fee it could not meet is the one for THAT input count — not for a
+        // guessed single fee input, which would under-report the shortfall
+        // and send someone topping up by too little.
+        final exhausted = _utxoService.spendableSoq.length;
         throw InsufficientFundsException(
-          available: _utxoService.balanceSat / 100000000,
-          requested: feeSat / 100000000);
+          available: _utxoService.soqBalanceSat / 100000000,
+          requested:
+              feeFor(u.length + exhausted, outputCount) / 100000000);
       }
       usdsoqInputs = u;
       soqFeeInputs = s;
       selected = [...u, ...s];
     } else {
-      final sel = _utxoService.selectUtxos(amountSat, feeSat, assetType: AssetType.soq);
+      final sel = _utxoService.selectUtxosForVariableFee(
+        amountSat,
+        (inputCount) => feeFor(inputCount, outputCount),
+        assetType: AssetType.soq,
+      );
       if (sel == null) {
+        // Report the wallet's real spendable balance, not the running total of
+        // a partial selection — "0.21 SOQ available" on a 1.0 SOQ wallet sent
+        // people hunting for funds that were never missing.
         throw InsufficientFundsException(
-          available: _utxoService.balanceSat / 100000000, requested: amountSoq);
+          available: _utxoService.soqBalanceSat / 100000000,
+          requested: amountSoq,
+        );
       }
       selected = sel;
     }
@@ -146,12 +183,11 @@ class TxBuilder {
     // are also removed from the tracker by recordSentTransaction.
     _utxoService.reserveUtxos(selected);
     try {
-      // Recalculate fee with actual input count (USDSOQ sends have up to 3
-      // outputs: USDSOQ recipient + USDSOQ change + SOQ change).
-      final actualSize = 10 + (selected.length * 3750) + (3 * 34);
-      var actualFeeSat = ((feeRateSatPerKb * actualSize) / 1000).ceil();
-      final actualMinFee = ((100000 * actualSize) / 1000).ceil();
-      if (actualFeeSat < actualMinFee) actualFeeSat = actualMinFee;
+      // The fee this transaction pays, from the SAME function selection
+      // priced against — so the amount deducted is the amount collected for,
+      // and the change arithmetic below can never come out negative on a
+      // selection that was accepted.
+      final actualFeeSat = feeFor(selected.length, outputCount);
 
       final outputs = <_RawOutput>[];
       final outputVisibility = confidential ? 0x01 : 0x00;
@@ -281,7 +317,11 @@ class TxBuilder {
     try {
       return await _rpc.estimateSmartFee(6); // Target 6-block confirm
     } catch (_) {
-      return 0.01; // 0.01 SOQ/kB fallback (generous for Soqucoin)
+      // minrelaytxfee, the same floor estimateSmartFee itself falls back to
+      // when the node has no estimate. The old 0.01 SOQ/kB here was TEN TIMES
+      // that, so a transient RPC error quietly charged ten times the fee the
+      // Send screen had just quoted.
+      return 0.001;
     }
   }
 
