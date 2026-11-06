@@ -660,3 +660,92 @@ class InstrumentEye extends StatelessWidget {
     );
   }
 }
+
+/// The smallest size the source line under a money figure is drawn at.
+/// CoinGecko's terms ask for its attribution in at least 10 points.
+const double kMinAttributionSize = 10;
+
+/// A money figure, with where the rate came from and how old it is.
+///
+/// ⛔ NO CHANGE FIGURE AND NO CHART. This wallet shows what a holding is worth
+/// right now and nothing about how that has moved: a delta invites the
+/// reading that the app is a place to watch a market, which it is not. The
+/// widget takes no change parameter at all, so one cannot be added at a call
+/// site without changing this class.
+///
+/// The [source] and [age] ride with the figure rather than sitting in
+/// Settings, because a number on a wallet screen with no provenance reads as
+/// the wallet's own opinion of what the owner's coins are worth. It is not:
+/// it is a rate somebody else published, at a moment that has passed.
+class InstrumentFiat extends StatelessWidget {
+  /// The already-formatted money amount, e.g. "$15.98".
+  final String value;
+
+  /// Where the rate came from, as the route reported it. Null to omit.
+  final String? source;
+
+  /// How old the rate is. Null to omit.
+  final Duration? age;
+
+  final double size;
+  final TextAlign align;
+
+  const InstrumentFiat({
+    super.key,
+    required this.value,
+    this.source,
+    this.age,
+    this.size = 13,
+    this.align = TextAlign.center,
+  });
+
+  /// "just now", "4 min ago", "2 hr ago" — coarse on purpose. The owner needs
+  /// to know whether this is current, not to the second.
+  static String ageLabel(Duration d) {
+    if (d.inMinutes < 1) return 'just now';
+    if (d.inMinutes < 60) return '${d.inMinutes} min ago';
+    if (d.inHours < 24) return '${d.inHours} hr ago';
+    return '${d.inDays} d ago';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final parts = <String>[
+      if (source != null && source!.isNotEmpty) source!,
+      if (age != null) ageLabel(age!),
+    ];
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          value,
+          textAlign: align,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: Instrument.label,
+            fontSize: size,
+            fontFamily: kMono,
+            letterSpacing: size * 0.04,
+          ),
+        ),
+        if (parts.isNotEmpty) ...[
+          const SizedBox(height: 2),
+          Text(
+            parts.join('  ·  '),
+            textAlign: align,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: Instrument.faint,
+              // Never under 10: the source line carries the data provider's
+              // attribution, which its terms require to stay legible.
+              fontSize: math.max(kMinAttributionSize, size * 0.72),
+              letterSpacing: size * 0.02,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}

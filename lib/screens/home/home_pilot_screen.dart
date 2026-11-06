@@ -30,6 +30,7 @@ import '../../theme/fmt.dart';
 import '../../theme/motion.dart';
 import '../../models/wallet_keys.dart';
 import '../../providers/display_prefs_provider.dart';
+import '../../providers/price_provider.dart';
 import '../../providers/launch_state_provider.dart';
 import '../../providers/wallet_provider.dart';
 import '../../providers/network_provider.dart';
@@ -287,6 +288,12 @@ class _HomePilotScreenState extends ConsumerState<HomePilotScreen>
                 ),
               ),
             ),
+            // The same holdings in the owner's currency. Absent unless the
+            // line is switched on, absent on stagenet, absent while the rate
+            // is unknown or stale, and masked with the figure above it —
+            // otherwise one tap hides the balance and the line underneath
+            // hands it straight back.
+            _fiatLine(wallet.displayBalance),
             if (wallet.hasPendingTx && !masked) ...[
               const SizedBox(height: 10),
               _pendingLine(wallet),
@@ -328,6 +335,43 @@ class _HomePilotScreenState extends ConsumerState<HomePilotScreen>
               color: Instrument.faint, fontSize: 10.5, height: 1.2),
         ),
       );
+
+  /// The holdings line in money, under the SOQ readout.
+  ///
+  /// On Mainnet with the line switched on, the slot is reserved whether or not
+  /// a rate has landed yet, so the first answer arriving a second after the
+  /// balance does not shove the trust badge, the buttons and the whole feed
+  /// down the screen. Otherwise it takes no space at all.
+  Widget _fiatLine(double soq) {
+    // livePriceProvider owns the opt-in and network rules; this only decides
+    // whether to reserve the slot, which is wasted space when it can never
+    // be filled.
+    final network = ref.watch(walletProvider.select((w) => w.network));
+    final show = ref.watch(displayPrefsProvider.select((p) => p.showFiat));
+    if (network != SoqNetwork.mainnet || !show) return const SizedBox.shrink();
+
+    final price = ref.watch(livePriceProvider);
+    final currency = ref.watch(fiatCurrencyProvider);
+    final masked = ref.watch(hideBalancesProvider);
+    final value = price?.valueOf(soq);
+
+    return SizedBox(
+      // Two lines: the figure, and the source at no less than
+      // kMinAttributionSize.
+      height: 36,
+      child: Center(
+        child: value == null
+            ? const SizedBox.shrink()
+            : InstrumentFiat(
+                value: masked
+                    ? maskedMoney(currency)
+                    : fmtMoney(value, currency),
+                source: price?.attribution,
+                age: price?.ageAt(DateTime.now()),
+              ),
+      ),
+    );
+  }
 
   Widget _pendingLine(WalletState wallet) {
     final sign = wallet.pendingBalance > 0 ? '+' : '';
@@ -383,6 +427,15 @@ class _HomePilotScreenState extends ConsumerState<HomePilotScreen>
     String n(double v, int dp) =>
         masked ? maskedAmount : v.toStringAsFixed(dp);
 
+    // The asset row's money sub-line follows the same rule as the hero's:
+    // switched on only, mainnet only, fresh rate only, and masked with the
+    // figure it sits under.
+    final currency = ref.watch(fiatCurrencyProvider);
+    final value = ref.watch(livePriceProvider)?.valueOf(wallet.displayBalance);
+    final assetFiat = value == null
+        ? null
+        : (masked ? maskedMoney(currency) : fmtMoney(value, currency));
+
     return RefreshIndicator(
       onRefresh: _refresh,
       color: Instrument.signal,
@@ -408,6 +461,7 @@ class _HomePilotScreenState extends ConsumerState<HomePilotScreen>
             markColor: Instrument.soq,
             name: wallet.network.ticker,
             balance: n(wallet.displayBalance, 2),
+            subValue: assetFiat,
             onTap: () => context.go('/send'),
           ),
           const SizedBox(height: 18),
@@ -533,12 +587,17 @@ class _AssetRow extends StatelessWidget {
   final Color markColor;
   final String name;
   final String balance;
+
+  /// The same holding in money, under the SOQ figure. Null whenever there is
+  /// no figure to show — the row then reads exactly as before.
+  final String? subValue;
   final VoidCallback? onTap;
   const _AssetRow({
     required this.mark,
     required this.markColor,
     required this.name,
     required this.balance,
+    this.subValue,
     this.onTap,
   });
   @override
@@ -560,11 +619,25 @@ class _AssetRow extends StatelessWidget {
                       fontSize: 14,
                       fontWeight: FontWeight.w500)),
               const Spacer(),
-              Text(balance,
-                  style: const TextStyle(
-                      color: Instrument.readout,
-                      fontSize: 14,
-                      fontFamily: kMono)),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(balance,
+                      style: const TextStyle(
+                          color: Instrument.readout,
+                          fontSize: 14,
+                          fontFamily: kMono)),
+                  if (subValue != null) ...[
+                    const SizedBox(height: 2),
+                    Text(subValue!,
+                        style: const TextStyle(
+                            color: Instrument.faint,
+                            fontSize: 11,
+                            fontFamily: kMono)),
+                  ],
+                ],
+              ),
               if (onTap != null) ...[
                 const SizedBox(width: 6),
                 Icon(Icons.chevron_right_rounded,

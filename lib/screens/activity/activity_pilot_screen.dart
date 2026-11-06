@@ -16,6 +16,8 @@ import '../../theme/instrument.dart';
 import '../../providers/wallet_provider.dart';
 import 'activity_detail_sheet.dart';
 import '../../providers/display_prefs_provider.dart';
+import '../../providers/price_provider.dart';
+import '../../services/price_service.dart' show SoqPrice;
 import '../../theme/fmt.dart';
 
 class ActivityPilotScreen extends ConsumerStatefulWidget {
@@ -66,6 +68,15 @@ class _ActivityPilotScreenState extends ConsumerState<ActivityPilotScreen> {
     // under an eyebrow date header — TODAY / YESTERDAY / 'JUL 3' (year only
     // when not current). Items list interleaves String headers and _Entry rows.
     final items = <Object>[];
+    // One quiet line, once, above the feed: the money figures on these rows
+    // are today's rate applied to an old amount, not what the payment was
+    // worth when it happened. Only shown when there are figures to qualify —
+    // with the line off, on stagenet, or with no rate, the feed reads as
+    // before.
+    final livePrice = ref.watch(livePriceProvider);
+    if (livePrice != null && timeline.isNotEmpty) {
+      items.add(_FiatCaveat(livePrice));
+    }
     String? lastDay;
     for (final e in timeline) {
       final day = _dayLabel(e.timestamp);
@@ -98,6 +109,7 @@ class _ActivityPilotScreenState extends ConsumerState<ActivityPilotScreen> {
                         separatorBuilder: (_, _) => const SizedBox(height: 2),
                         itemBuilder: (_, i) {
                           final it = items[i];
+                          if (it is _FiatCaveat) return _fiatCaveat(it.price);
                           return it is String
                               ? _dayHeader(it, first: i == 0)
                               : _row(it as _Entry);
@@ -132,6 +144,26 @@ class _ActivityPilotScreenState extends ConsumerState<ActivityPilotScreen> {
         padding: EdgeInsets.only(top: first ? 4 : 18, bottom: 8),
         child: Text(label, style: Instrument.eyebrow(size: 10)),
       );
+
+  /// The one line that keeps the money figures below honest: what rate they
+  /// use, where it came from and how old it is. The rows carry only the
+  /// figure, so the provenance is stated once, here.
+  Widget _fiatCaveat(SoqPrice price) {
+    final source = price.attribution;
+    final provenance = [
+      if (source != null && source.isNotEmpty) source,
+      InstrumentFiat.ageLabel(price.ageAt(DateTime.now())),
+    ].join('  ·  ');
+    return Padding(
+      padding: const EdgeInsets.only(top: 2, bottom: 10),
+      child: Text(
+        'Money figures are at today\u2019s rate, not the rate at the time. '
+        'Rate: $provenance.',
+        style: const TextStyle(
+            color: Instrument.faint, fontSize: 10.5, height: 1.3),
+      ),
+    );
+  }
 
   Widget _topBar() => Padding(
         padding: const EdgeInsets.fromLTRB(8, 6, 22, 10),
@@ -223,6 +255,11 @@ class _ActivityPilotScreenState extends ConsumerState<ActivityPilotScreen> {
 
   Widget _row(_Entry e) {
     final masked = ref.watch(hideBalancesProvider);
+    final currency = ref.watch(fiatCurrencyProvider);
+    // Today's rate applied to an old amount. The list carries a one-line
+    // qualifier saying so, rather than letting each row imply it was worth
+    // this much at the time.
+    final rowValue = ref.watch(livePriceProvider)?.valueOf(e.tx.amount);
     final inbound = e.inbound;
 
     // A row opens its transaction's detail sheet, where the hash is copied.
@@ -266,13 +303,35 @@ class _ActivityPilotScreenState extends ConsumerState<ActivityPilotScreen> {
             Expanded(
               child: Align(
                 alignment: Alignment.centerRight,
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(masked ? e.maskedLabel : e.amountLabel,
-                      style: TextStyle(
-                          color: inbound ? Instrument.readout : Instrument.label,
-                          fontSize: 13.5,
-                          fontFamily: kMono)),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(masked ? e.maskedLabel : e.amountLabel,
+                          style: TextStyle(
+                              color: inbound
+                                  ? Instrument.readout
+                                  : Instrument.label,
+                              fontSize: 13.5,
+                              fontFamily: kMono)),
+                    ),
+                    if (rowValue != null) ...[
+                      const SizedBox(height: 2),
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                            masked
+                                ? maskedMoney(currency)
+                                : fmtMoney(rowValue, currency),
+                            style: const TextStyle(
+                                color: Instrument.faint,
+                                fontSize: 10.5,
+                                fontFamily: kMono)),
+                      ),
+                    ],
+                  ],
                 ),
               ),
             ),
@@ -337,4 +396,10 @@ class _Entry {
     }
     return '${timestamp.month}/${timestamp.day}/${timestamp.year}';
   }
+}
+
+/// List marker for the one-line "today's rate" qualifier above the feed.
+class _FiatCaveat {
+  const _FiatCaveat(this.price);
+  final SoqPrice price;
 }

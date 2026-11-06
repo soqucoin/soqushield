@@ -22,6 +22,7 @@ import '../../models/wallet_keys.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/display_prefs_provider.dart';
 import '../../providers/launch_state_provider.dart';
+import '../../providers/price_provider.dart';
 import '../../providers/wallet_provider.dart';
 import '../../providers/session_provider.dart';
 import '../../services/rpc_service.dart';
@@ -406,6 +407,7 @@ class _SendPilotScreenState extends ConsumerState<SendPilotScreen>
               ],
             ),
           ),
+          _amountFiatLine(),
           const SizedBox(height: 18),
           // ── amount input ──
           _inputField(
@@ -694,6 +696,37 @@ class _SendPilotScreenState extends ConsumerState<SendPilotScreen>
           ],
         ),
       );
+
+  /// What the amount being typed is worth. Mainnet only and only with the
+  /// line switched on; the slot is reserved so the figure arriving does not
+  /// shove the input, the address field and the Send button down mid-typing.
+  Widget _amountFiatLine() {
+    final network = ref.watch(walletProvider.select((w) => w.network));
+    final show = ref.watch(displayPrefsProvider.select((p) => p.showFiat));
+    if (network != SoqNetwork.mainnet || !show) return const SizedBox.shrink();
+
+    final amount = double.tryParse(_amountCtrl.text) ?? 0;
+    final currency = ref.watch(fiatCurrencyProvider);
+    final price = ref.watch(livePriceProvider);
+    final value = price?.valueOf(amount);
+    // The source and the age ride with the figure, as on Home: this screen
+    // has no other provenance label. The slot holds both lines.
+    return SizedBox(
+      // Two lines: the figure, and the source at no less than
+      // kMinAttributionSize.
+      height: 36,
+      child: Center(
+        child: (value == null || amount <= 0)
+            ? const SizedBox.shrink()
+            : InstrumentFiat(
+                value: fmtMoney(value, currency),
+                source: price?.attribution,
+                age: price?.ageAt(DateTime.now()),
+                size: 12,
+              ),
+      ),
+    );
+  }
 
   Widget _inputField({
     required TextEditingController controller,

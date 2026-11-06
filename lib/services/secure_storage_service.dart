@@ -348,6 +348,8 @@ class SecureStorageService {
   /// test.
   static const displayKeys = [
     'soq_hide_balances_v1',
+    'soq_show_fiat_v1',
+    'soq_fiat_currency_v1',
     'soq_allow_capture_v1',
   ];
 

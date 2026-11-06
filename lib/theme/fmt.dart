@@ -1,5 +1,8 @@
 // Numeral discipline (design audit 2026-07-05 §5): one voice for numbers.
 import 'package:intl/intl.dart';
+import 'dart:math' as math;
+
+import '../models/fiat_currency.dart';
 
 final _n0 = NumberFormat('#,##0');
 final _n2 = NumberFormat('#,##0.00');
@@ -23,3 +26,64 @@ String fmtDetailAmount(num v) =>
 
 /// The masked stand-in for a hidden SOQ amount.
 const String maskedAmount = '••••';
+
+/// A money figure in [currency], at the precision the figure actually needs.
+///
+/// One minor unit and up is the ordinary money voice — the currency's own
+/// decimal places with thousands separators ($15.98, €1,234.56, ¥2,410).
+/// Below that the voice changes: SOQ trades in fractions of a cent, so a small
+/// holding at 2dp reads "$0.00", which says "worthless" rather than "small".
+/// Under one minor unit this widens to two significant digits instead
+/// ($0.0016, $0.00016), so a real balance always shows a real number. Exactly
+/// zero keeps the ordinary voice — that one IS zero.
+///
+/// [compact] flips that rule for figures where the precision is noise rather
+/// than information. A BALANCE under a cent is worth stating exactly — it is
+/// the owner's money and they may want the real number. A COST under a cent is
+/// not: "$0.0000012" beside a fee tells nobody anything, where "<$0.01" says
+/// the one thing they wanted to know. Use [compact] for fees and costs.
+String fmtMoney(num v, FiatCurrency currency, {bool compact = false}) {
+  final value = v.toDouble();
+  if (!value.isFinite) return '—';
+  final a = value.abs();
+  final sign = value < 0 ? '−' : '';
+  final sym = currency.symbol;
+
+  // One minor unit: 0.01 where there are cents, 1 where there are none.
+  final unit = math.pow(10, -currency.minorDigits).toDouble();
+
+  if (a == 0 || a >= unit) {
+    final digits = currency.minorDigits;
+    final f = digits == 2
+        ? _n2
+        : NumberFormat('#,##0${digits > 0 ? '.${'0' * digits}' : ''}');
+    return '$sign$sym${f.format(a)}';
+  }
+
+  if (compact) return '<$sym${unit.toStringAsFixed(currency.minorDigits)}';
+
+  // Two significant digits: for 0.0016 the first digit sits at 1e-3, so 4dp.
+  // No cap tied to the koinu: this is a FIAT amount, and a few koinu at a
+  // fraction-of-a-cent rate sit far below 1e-8 of a currency unit. Past
+  // [_maxFixedDp] places the fixed form stops being readable, so the figure
+  // goes to scientific notation, still two significant digits and still
+  // never zero.
+  final dp = 1 - (math.log(a) / math.ln10).floor();
+  if (dp > _maxFixedDp) return '$sign$sym${a.toStringAsExponential(1)}';
+  return '$sign$sym${a.toStringAsFixed(dp)}';
+}
+
+/// The most decimal places a sub-unit money figure is written out in before
+/// it switches to scientific notation.
+const int _maxFixedDp = 12;
+
+/// [fmtMoney] in US dollars. Kept for the call sites that are dollars by
+/// definition; everything the owner sees goes through [fmtMoney] with their
+/// chosen currency.
+String fmtUsd(num v, {bool compact = false}) =>
+    fmtMoney(v, FiatCurrency.usd, compact: compact);
+
+/// The masked stand-in for a hidden figure, in [currency]'s voice — "$••••".
+/// Hiding a balance has to hide its money figure too, or the one hands the
+/// other straight back.
+String maskedMoney(FiatCurrency currency) => '${currency.symbol}••••';

@@ -17,6 +17,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../models/fiat_currency.dart';
 import '../services/screen_capture.dart';
 import '../services/secure_storage_service.dart' show kSharedSecureStorage;
 
@@ -24,6 +25,17 @@ import '../services/secure_storage_service.dart' show kSharedSecureStorage;
 class DisplayPrefs {
   /// Hide every figure that says how much the wallet holds.
   final bool hideBalances;
+
+  /// Whether to show what a balance is worth in money at all.
+  ///
+  /// ⛔ Defaults to FALSE. The wallet's own unit is SOQ; a money figure is an
+  /// extra the owner asks for, read from a rate the company cached. Off by
+  /// default also means a wallet that has never been into Settings makes no
+  /// price request at all.
+  final bool showFiat;
+
+  /// The currency money figures are shown in.
+  final FiatCurrency currency;
 
   /// Whether the OS may capture this app's screen.
   ///
@@ -38,17 +50,23 @@ class DisplayPrefs {
 
   const DisplayPrefs({
     this.hideBalances = false,
+    this.showFiat = false,
+    this.currency = FiatCurrency.usd,
     this.allowScreenCapture = false,
     this.loaded = false,
   });
 
   DisplayPrefs copyWith({
     bool? hideBalances,
+    bool? showFiat,
+    FiatCurrency? currency,
     bool? allowScreenCapture,
     bool? loaded,
   }) =>
       DisplayPrefs(
         hideBalances: hideBalances ?? this.hideBalances,
+        showFiat: showFiat ?? this.showFiat,
+        currency: currency ?? this.currency,
         allowScreenCapture: allowScreenCapture ?? this.allowScreenCapture,
         loaded: loaded ?? this.loaded,
       );
@@ -56,12 +74,19 @@ class DisplayPrefs {
 
 class DisplayPrefsNotifier extends Notifier<DisplayPrefs> {
   static const _keyHideBalances = 'soq_hide_balances_v1';
+  static const _keyShowFiat = 'soq_show_fiat_v1';
+  static const _keyCurrency = 'soq_fiat_currency_v1';
   static const _keyAllowCapture = 'soq_allow_capture_v1';
 
   /// Every key this notifier stores. A wipe deletes them by name
   /// ([SecureStorageService.displayKeys] names the same list, pinned by a
   /// test): on iOS the wallet instance's deleteAll does not reach them.
-  static const storedKeys = [_keyHideBalances, _keyAllowCapture];
+  static const storedKeys = [
+    _keyHideBalances,
+    _keyShowFiat,
+    _keyCurrency,
+    _keyAllowCapture,
+  ];
 
   FlutterSecureStorage get _storage => kSharedSecureStorage;
 
@@ -80,10 +105,16 @@ class DisplayPrefsNotifier extends Notifier<DisplayPrefs> {
     // this — a container torn down. Writing `state` after that throws, so
     // each gap is followed by a mounted check.
     var hide = false;
+    var fiat = false;
+    String? cur;
     var allowed = false;
     try {
-      // Read separately: a failure on one key does not cost the other.
+      // Read separately: a failure on one key does not cost the others.
       hide = await _readFlag(_keyHideBalances);
+      // Anything but an explicit "true" leaves the money line off, so a
+      // failed read never switches it on behind the owner.
+      fiat = await _readFlag(_keyShowFiat);
+      cur = await _readString(_keyCurrency);
       allowed = await _readFlag(_keyAllowCapture);
     } catch (e) {
       debugPrint('DisplayPrefs: load failed, keeping defaults: $e');
@@ -96,19 +127,31 @@ class DisplayPrefsNotifier extends Notifier<DisplayPrefs> {
     if (!ref.mounted) return;
     state = DisplayPrefs(
         hideBalances: hide,
+        showFiat: fiat,
+        currency: FiatCurrency.fromCode(cur),
         allowScreenCapture: ScreenCapture.ownerAllows,
         loaded: true);
   }
 
   /// Anything other than an explicit "true" is false. A storage read that
   /// fails, or a value written by a build that did not have the setting,
-  /// lands on the default: protected, and balances shown.
+  /// lands on the default: protected, balances shown, the money line off.
   Future<bool> _readFlag(String key) async {
     try {
       return await _storage.read(key: key) == 'true';
     } catch (e) {
       debugPrint('DisplayPrefs: $key unreadable, using the default: $e');
       return false;
+    }
+  }
+
+  /// The stored string, or null when it is absent or cannot be read.
+  Future<String?> _readString(String key) async {
+    try {
+      return await _storage.read(key: key);
+    } catch (e) {
+      debugPrint('DisplayPrefs: $key unreadable, using the default: $e');
+      return null;
     }
   }
 
@@ -126,6 +169,23 @@ class DisplayPrefsNotifier extends Notifier<DisplayPrefs> {
     await _ready;
     if (!ref.mounted) return;
     await setHideBalances(!state.hideBalances);
+  }
+
+  /// Turn the money line on or off.
+  Future<void> setShowFiat(bool show) async {
+    await _ready;
+    if (!ref.mounted) return;
+    state = state.copyWith(showFiat: show);
+    await _storage.write(key: _keyShowFiat, value: show.toString());
+  }
+
+  /// Choose the currency money figures are shown in.
+  Future<void> setCurrency(FiatCurrency currency) async {
+    await _ready;
+    if (!ref.mounted) return;
+    if (currency == state.currency) return;
+    state = state.copyWith(currency: currency);
+    await _storage.write(key: _keyCurrency, value: currency.code);
   }
 
   /// Allow or forbid OS screen capture. Returns whether the choice took
@@ -177,3 +237,7 @@ final displayPrefsProvider =
 /// on, the first frames must not show the holdings before the read lands.
 final hideBalancesProvider = Provider<bool>((ref) => ref.watch(
     displayPrefsProvider.select((p) => !p.loaded || p.hideBalances)));
+
+/// The currency money figures are shown in.
+final fiatCurrencyProvider = Provider<FiatCurrency>(
+    (ref) => ref.watch(displayPrefsProvider.select((p) => p.currency)));
