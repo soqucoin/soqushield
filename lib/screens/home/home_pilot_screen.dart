@@ -29,6 +29,7 @@ import '../../theme/figures.dart';
 import '../../theme/fmt.dart';
 import '../../theme/motion.dart';
 import '../../models/wallet_keys.dart';
+import '../../providers/display_prefs_provider.dart';
 import '../../providers/launch_state_provider.dart';
 import '../../providers/wallet_provider.dart';
 import '../../providers/network_provider.dart';
@@ -96,7 +97,6 @@ class HomePilotScreen extends ConsumerStatefulWidget {
 
 class _HomePilotScreenState extends ConsumerState<HomePilotScreen>
     with TickerProviderStateMixin, InstrumentFigureMixin {
-  bool _masked = false;
 
   /// The lock-on after a heartbeat: when the billet a new block sent reaches
   /// the chain node, brackets frame the height it carried, then fade.
@@ -158,11 +158,15 @@ class _HomePilotScreenState extends ConsumerState<HomePilotScreen>
     }
   }
 
+  /// Tapping the readout hides every balance figure, app-wide and for good —
+  /// not just this readout until you switch tabs. Someone who hides their
+  /// balance to hand the phone over means it to STAY hidden.
+  ///
+  /// The hero figure shows no balance (key custody and chain state are not
+  /// private), so there is nothing for it to react to — no fireFigure.
   void _toggleMask() {
-    // Masking only affects the HOLDINGS readout — the figure shows no
-    // balance (key custody + chain state aren't private), so no fireFigure.
     HapticFeedback.selectionClick();
-    setState(() => _masked = !_masked);
+    ref.read(displayPrefsProvider.notifier).toggleHideBalances();
   }
 
   Future<void> _refresh() async {
@@ -220,9 +224,9 @@ class _HomePilotScreenState extends ConsumerState<HomePilotScreen>
     final mainnetWaiting = mainnetDown && !seenLive;
     final mainnetReconnecting = mainnetDown && seenLive;
 
-    final total = _masked
-        ? '••••••'
-        : wallet.displayBalance.toStringAsFixed(2);
+    final masked = ref.watch(hideBalancesProvider);
+    final total =
+        masked ? '••••••' : wallet.displayBalance.toStringAsFixed(2);
 
     return Scaffold(
       backgroundColor: Instrument.void0,
@@ -265,7 +269,11 @@ class _HomePilotScreenState extends ConsumerState<HomePilotScreen>
               ),
             ),
             const SizedBox(height: 28),
-            // ── HOLDINGS readout — tap to mask ──
+            // ── HOLDINGS readout ──
+            // The eye beside the label is the affordance people look for;
+            // tapping the figure itself does the same thing, for anyone who
+            // reaches for the number. The tap alone used to be the ONLY way,
+            // which meant nobody found it.
             GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: _toggleMask,
@@ -273,9 +281,13 @@ class _HomePilotScreenState extends ConsumerState<HomePilotScreen>
                 label: 'HOLDINGS · ${wallet.network.ticker}',
                 value: total,
                 unit: wallet.network.ticker,
+                labelAction: InstrumentEye(
+                  hidden: masked,
+                  onTap: _toggleMask,
+                ),
               ),
             ),
-            if (wallet.hasPendingTx && !_masked) ...[
+            if (wallet.hasPendingTx && !masked) ...[
               const SizedBox(height: 10),
               _pendingLine(wallet),
             ],
@@ -367,7 +379,9 @@ class _HomePilotScreenState extends ConsumerState<HomePilotScreen>
 
   // ── the scrolling feed: the asset, the address, the backup nudge ──
   Widget _feed(WalletState wallet) {
-    String n(double v, int dp) => _masked ? '••••' : v.toStringAsFixed(dp);
+    final masked = ref.watch(hideBalancesProvider);
+    String n(double v, int dp) =>
+        masked ? maskedAmount : v.toStringAsFixed(dp);
 
     return RefreshIndicator(
       onRefresh: _refresh,

@@ -96,9 +96,17 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
                   // scope pin asserts that exact header never returns. This
                   // section is about what the screen shows, not about
                   // confidential transactions. The web has no capture
-                  // control to offer, so the section is left out there.
+                  // control to offer, so that row is left out there.
+                  _section('PRIVACY & DISPLAY'),
+                  _toggleTile(
+                      Icons.visibility_off_outlined,
+                      'Hide balances',
+                      'Replace every amount with dots',
+                      prefs.hideBalances,
+                      (v) => ref
+                          .read(displayPrefsProvider.notifier)
+                          .setHideBalances(v)),
                   if (!kIsWeb) ...[
-                    _section('PRIVACY & DISPLAY'),
                     _screenCaptureTile(prefs),
                     _noteTile(_captureNote),
                   ],

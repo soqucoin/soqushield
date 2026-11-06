@@ -347,6 +347,7 @@ class SecureStorageService {
   /// starts protected; the notifier's own list is pinned to this one by a
   /// test.
   static const displayKeys = [
+    'soq_hide_balances_v1',
     'soq_allow_capture_v1',
   ];
 

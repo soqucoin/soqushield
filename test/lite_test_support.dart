@@ -197,6 +197,11 @@ class FixedDisplayPrefs extends Notifier<DisplayPrefs>
   @override
   DisplayPrefs build() => _prefs;
   @override
+  Future<void> setHideBalances(bool hide) async =>
+      state = state.copyWith(hideBalances: hide);
+  @override
+  Future<void> toggleHideBalances() => setHideBalances(!state.hideBalances);
+  @override
   Future<bool> setAllowScreenCapture(bool allow) async {
     state = state.copyWith(allowScreenCapture: allow);
     return true;
