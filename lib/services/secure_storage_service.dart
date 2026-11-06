@@ -456,6 +456,44 @@ class SecureStorageService {
     });
   }
 
+  /// Give [id] a new name, keeping everything else about the wallet.
+  ///
+  /// ⛔ Only the name changes. The address, the network and the creation
+  /// date are carried over from the row that is already there, so a rename
+  /// can never be the thing that repoints a wallet at another address.
+  ///
+  /// The name is cleaned before it is stored: see [WalletRecord.cleanName]
+  /// for why a wallet name is not free text. A name that cleans away to
+  /// nothing is refused rather than stored blank, because an unnamed row in
+  /// a wallet list is a row the owner cannot choose by.
+  ///
+  /// Returns the stored record. Throws if [id] is not a wallet here — a
+  /// rename that silently did nothing would read, from the screen, exactly
+  /// like a rename that worked.
+  ///
+  /// The lookup and the write are one step in the registry queue, on a read
+  /// that fails rather than reads as empty: two renames cannot undo each
+  /// other, and an unreadable registry is never replaced by one row.
+  Future<WalletRecord> renameWallet(String id, String name) async {
+    final cleaned = WalletRecord.cleanName(name);
+    if (cleaned == null) {
+      throw ArgumentError.value(name, 'name', 'is empty once cleaned');
+    }
+
+    return _mutateRegistry(() async {
+      final wallets = await _readRegistryForWrite();
+      final i = wallets.indexWhere((w) => w.id == id);
+      if (i < 0) {
+        throw ArgumentError.value(id, 'id', 'no such wallet in the registry');
+      }
+
+      final renamed = wallets[i].copyWith(name: cleaned);
+      wallets[i] = renamed;
+      await _writeRegistry(wallets);
+      return renamed;
+    });
+  }
+
   /// Every address already on this device, for refusing a duplicate import.
   Future<Set<String>> knownAddresses() async =>
       (await listWallets()).map((w) => w.address).toSet();

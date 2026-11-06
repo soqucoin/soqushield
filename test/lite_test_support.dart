@@ -36,6 +36,10 @@ final Map<String, Completer<void>> secureStorageReadHolds = {};
 /// is removed from the set as it fires), as a keystore read sometimes does.
 final Set<String> secureStorageReadFailures = {};
 
+/// A key here lets that many reads through, then fails the next one once:
+/// for an operation whose SECOND read of a key is the one that fails.
+final Map<String, int> secureStorageReadFailuresAfter = {};
+
 /// The next write to one of these keys is refused with a platform error (the
 /// key is removed from the set as it fires), so a test can fail a storage
 /// write once, mid-operation.
@@ -48,6 +52,7 @@ void installSecureStorageMock() {
   secureStorageWriteHolds.clear();
   secureStorageReadHolds.clear();
   secureStorageReadFailures.clear();
+  secureStorageReadFailuresAfter.clear();
   secureStorageWriteFailures.clear();
   TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .setMockMethodCallHandler(
@@ -61,6 +66,14 @@ void installSecureStorageMock() {
           if (readHold != null) await readHold.future;
           if (secureStorageReadFailures.remove(args['key'] as String)) {
             throw PlatformException(code: 'test', message: 'read refused');
+          }
+          final after = secureStorageReadFailuresAfter[args['key'] as String];
+          if (after != null) {
+            if (after == 0) {
+              secureStorageReadFailuresAfter.remove(args['key'] as String);
+              throw PlatformException(code: 'test', message: 'read refused');
+            }
+            secureStorageReadFailuresAfter[args['key'] as String] = after - 1;
           }
           return secureStore[args['key'] as String];
         case 'write':
