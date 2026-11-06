@@ -55,13 +55,11 @@ class SecureStorageService {
 
   /// Where a wallet's secrets live.
   ///
-  /// ⛔ The PRIMARY wallet keeps the original un-namespaced keys. Adopting it
-  /// into the registry therefore moves no secret at all: a migration that
-  /// relocates a mnemonic can half-finish, and a half-finished one is a lost
-  /// wallet. Every wallet added after the registry exists gets its own
-  /// namespace and never collides with it.
+  /// The rule itself lives in [WalletRecord.scopeKey], because the cached
+  /// coin set and the transaction history have to partition by exactly the
+  /// same rule and must not be able to drift away from it.
   static String _scoped(String id, String flatKey) =>
-      id == WalletRecord.primaryId ? flatKey : 'soq_w_${id}_$flatKey';
+      WalletRecord.scopeKey(id, flatKey);
 
   String mnemonicKeyFor(String id) => _scoped(id, _keyMnemonic);
   String addressKeyFor(String id) => _scoped(id, _keyAddress);

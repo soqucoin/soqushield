@@ -28,7 +28,8 @@ final List<String> secureStorageCalls = [];
 final Map<String, Completer<void>> secureStorageWriteHolds = {};
 
 /// A read of one of these keys waits on its completer before it answers, so
-/// a test can act while a stored preference is still loading.
+/// a test can act while a read is in flight (a partition moving, a stored
+/// preference still loading).
 final Map<String, Completer<void>> secureStorageReadHolds = {};
 
 /// The next write to one of these keys is refused with a platform error (the
