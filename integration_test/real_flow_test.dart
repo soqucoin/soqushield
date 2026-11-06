@@ -342,6 +342,38 @@ void main() {
     expect(t.widget<ReceiveQr>(find.byType(ReceiveQr)).data, _katMainnet,
         reason: 'the canonical 24 words give the known-answer mainnet address');
     await mark(t, 'restored-kat');
+    await back(t);
+
+    // ── reopen: the boot every returning holder takes ──
+    //
+    // ⛔ THE DRIVE HAD NEVER TAKEN IT. It starts on a device with no wallet
+    // and boots once, so `_loadExistingWallet` returned at its first check
+    // every time: the whole path that reads a stored mnemonic, re-derives
+    // the keys, adopts the wallet into the registry and opens its partitions
+    // ran on no device, in any drive, ever. It is the boot almost every
+    // launch of this app actually performs.
+    //
+    // ⛔ The tree is torn down FIRST. Pumping a second ProviderScope on its
+    // own does nothing: the widget type matches, so Flutter updates the
+    // element it already has and the container — with every provider in it —
+    // survives. The boot never re-runs and the step passes on the screen
+    // that was already there. Unmounting first forces a new container, and
+    // that is the only thing that makes this a boot at all.
+    await t.pumpWidget(const SizedBox.shrink());
+    await t.pump(const Duration(milliseconds: 200));
+
+    // The wallet it finds is the one restored just above, so the address it
+    // re-derives is the known answer again — this time from the stored seed
+    // rather than from the words.
+    await t.pumpWidget(const ProviderScope(child: SoquShieldApp()));
+    await until(t, find.text('SEND'), limit: const Duration(seconds: 60));
+    await until(t, find.text('MAINNET'));
+    await tapText(t, 'RECEIVE');
+    await until(t, find.text('COPY ADDRESS'));
+    expect(t.widget<ReceiveQr>(find.byType(ReceiveQr)).data, _katMainnet,
+        reason: 'reopening re-derives the same address from the stored seed');
+    await mark(t, 'reopened');
+
     // ignore: avoid_print
     print('MARK done');
   });

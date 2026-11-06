@@ -181,6 +181,14 @@ class WalletNotifier extends Notifier<WalletState> {
     _utxoService = UtxoService(_rpcService);
     _txBuilder = TxBuilder(_rpcService, _utxoService);
 
+    // A disposed notifier must not keep polling: the next tick would read
+    // `state` on it and throw. Retire the refresh in flight too, as a wipe
+    // does, so a late reply writes nothing.
+    ref.onDispose(() {
+      _stopAutoRefresh();
+      _refreshGeneration++;
+    });
+
     // Check for existing wallet on startup
     Future.microtask(() => _loadExistingWallet());
 
@@ -592,7 +600,13 @@ class WalletNotifier extends Notifier<WalletState> {
     });
   }
 
-  /// Stop polling (called on wallet wipe).
+  /// Whether a polling timer is armed. For tests.
+  @visibleForTesting
+  bool get autoRefreshArmed =>
+      (_refreshTimer?.isActive ?? false) ||
+      (_fastRefreshTimer?.isActive ?? false);
+
+  /// Stop polling (called on wallet wipe and on dispose).
   void _stopAutoRefresh() {
     _refreshTimer?.cancel();
     _refreshTimer = null;
