@@ -11,6 +11,16 @@
 /// wallet): `adb shell locksettings set-pin 1234` on an emulator, Face ID
 /// enrolled on an iOS simulator. No biometric prompt is crossed in this drive.
 ///
+/// ⛔ START FROM A DEVICE WITH NO WALLET. The drive opens on the create path,
+/// and the iOS keychain OUTLIVES an app uninstall — a simulator that has run
+/// this before boots straight into the wallet it already has, and the drive
+/// fails on the welcome screen it never sees. Erase it first:
+///
+///   `xcrun simctl shutdown ID && xcrun simctl erase ID && xcrun simctl boot ID`
+///   `xcrun simctl spawn ID notifyutil -s com.apple.BiometricKit.enrollmentChanged 1`
+///
+/// (the second line re-enrols Face ID, which the erase takes with it).
+///
 /// Run: flutter test integration_test/real_flow_test.dart -d `<device>`
 /// Android captures need `--dart-define=SOQUSHIELD_CAPTURE=true` as well: a
 /// debug build then lifts FLAG_SECURE for the run, a release build refuses.
@@ -74,6 +84,20 @@ void main() {
     await t.pump(const Duration(milliseconds: 300));
   }
 
+  /// Drop focus and let the software keyboard go.
+  ///
+  /// ⛔ Call this after the last [WidgetTester.enterText] on a screen, before
+  /// tapping anything below the field. The keyboard is a real view on a real
+  /// device: it covers the lower half of the screen, and a tap aimed at a
+  /// button under it lands on the keyboard instead. The form scrolls, so a
+  /// holder simply scrolls the button up — the drive has to say so.
+  Future<void> dismissKeyboard(WidgetTester t) async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    // The keyboard animates out over about 250ms, and the scroll view
+    // reflows behind it. Pump past both before anything is tapped.
+    await pumpFor(t, const Duration(milliseconds: 700));
+  }
+
   Future<void> openDrawerItem(WidgetTester t, String label) async {
     await tapText(t, 'More');
     await pumpFor(t, const Duration(milliseconds: 600));
@@ -103,6 +127,13 @@ void main() {
       print('CAPTURE ${lifted == true ? 'allowed' : 'refused'}');
     }
 
+    // ⛔ A tap that misses is FATAL here. Flutter only warns when the offset
+    // it derives does not hit the widget, so the drive used to sail past a
+    // missed tap and then wait out every later `until` on a screen it never
+    // left — minutes of silence ending in an error naming the wrong step.
+    // Failing at the tap names the step that actually went wrong.
+    WidgetController.hitTestWarningShouldBeFatal = true;
+
     // The app's root widget, not main(): main() wraps runApp in its own zone
     // and error boundary, which the test binding refuses.
     await t.pumpWidget(const ProviderScope(child: SoquShieldApp()));
@@ -114,6 +145,8 @@ void main() {
     await until(t, find.text('ACTIVATE'));
     await t.enterText(find.byType(TextField).first, 'Review');
     await mark(t, 'create');
+    // ACTIVATE sits below the field, under the open keyboard.
+    await dismissKeyboard(t);
     await tapText(t, 'ACTIVATE');
 
     // ── seed backup (keygen runs first) ──
