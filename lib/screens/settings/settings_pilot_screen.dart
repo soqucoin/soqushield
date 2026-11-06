@@ -89,6 +89,14 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
                           .setLockOnBackground(v)),
                   _timeoutTile(session),
 
+                  // ── WALLETS ──
+                  _section('WALLETS'),
+                  _navTile(
+                      Icons.account_balance_wallet_outlined,
+                      'Wallets on this device',
+                      'Add, rename, or open another wallet',
+                      () => context.push('/wallets')),
+
                   // ── PRIVACY & DISPLAY ──
                   // NOT 'PRIVACY': the full app's PRIVACY section held the
                   // shielded-transaction surfaces (privacy dashboard, view

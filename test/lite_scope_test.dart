@@ -339,6 +339,7 @@ const _liteRoutes = {
   '/activity',
   '/network',
   '/receive',
+  '/wallets',
   '/settings',
   '/guide',
   '/guide/:id',
