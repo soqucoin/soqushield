@@ -234,6 +234,10 @@ void main() {
     await openDrawerItem(t, 'Settings');
     await until(t, find.text('SETTINGS'));
     await mark(t, 'settings-mainnet');
+    // The WALLETS and PRIVACY & DISPLAY sections sit above NETWORK now, so its
+    // row starts below the fold and the lazy list has not built it yet.
+    await t.scrollUntilVisible(find.text('Mainnet'), 300,
+        scrollable: find.byType(Scrollable).first);
     await t.tap(find.text('Mainnet').first);
     await pumpFor(t, const Duration(milliseconds: 600));
     await tapText(t, 'Stagenet', last: true);
