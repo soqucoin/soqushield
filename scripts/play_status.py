@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.request
 
 PACKAGE = "org.soqu.soqushield"
@@ -64,14 +65,29 @@ def token() -> str:
     return json.load(urllib.request.urlopen(req))["access_token"]
 
 
+# Answers worth a second try: Google's own overload and rate limits. A 503 came back once to the
+# delete of a read-only edit while ten release runs read the store at once, and failed a run that
+# had nothing to upload. Three more attempts, 2, 4 and 8 seconds apart; the last one raises.
+RETRY_STATUSES = {429, 500, 502, 503, 504}
+ATTEMPTS = 4
+
+
 def call(tok, method, path, body=None):
     req = urllib.request.Request(f"{API}{path}", method=method,
                                  data=json.dumps(body).encode() if body else None,
                                  headers={"Authorization": f"Bearer {tok}",
                                           "Content-Type": "application/json"})
-    with urllib.request.urlopen(req) as r:
-        data = r.read()
-        return json.loads(data) if data else {}
+    for attempt in range(1, ATTEMPTS + 1):
+        try:
+            with urllib.request.urlopen(req) as r:
+                data = r.read()
+                return json.loads(data) if data else {}
+        except urllib.error.HTTPError as e:
+            if e.code not in RETRY_STATUSES or attempt == ATTEMPTS:
+                raise
+            print(f"play_status: {method} {path} answered {e.code}; attempt {attempt} of {ATTEMPTS}, "
+                  f"waiting {2 ** attempt} s", file=sys.stderr)
+            time.sleep(2 ** attempt)
 
 
 def max_version_code(tracks):
@@ -98,7 +114,13 @@ def main():
                       f"versionCodes={rel.get('versionCodes')} "
                       f"rollout={rel.get('userFraction', 'full')}")
     finally:
-        call(tok, "DELETE", f"/applications/{PACKAGE}/edits/{edit_id}")
+        # Best effort: the edit carries no change, and nobody commits it. A delete that fails
+        # must not turn a successful read into a failed step.
+        try:
+            call(tok, "DELETE", f"/applications/{PACKAGE}/edits/{edit_id}")
+        except Exception as e:  # noqa: BLE001
+            print(f"play_status: the read-only edit {edit_id} was not deleted ({e}); "
+                  "it carries no change", file=sys.stderr)
 
 
 if __name__ == "__main__":
