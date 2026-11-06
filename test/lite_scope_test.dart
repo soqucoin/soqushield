@@ -983,9 +983,9 @@ void main() {
 
   group('version', () {
     test('is the lite release', () {
-      expect(kAppVersion, 'v2.5.0');
-      expect(RegExp(r'^version:\s*2\.5\.0\+32\s*$', multiLine: true).hasMatch(_read('pubspec.yaml')),
-          isTrue, reason: 'pubspec version must be 2.5.0+32, the last build uploaded without the export-compliance key (its value false was set in App Store Connect; the next upload carries the key again); it carries the one-time move to Mainnet that survives a failed storage write');
+      expect(kAppVersion, 'v2.6.0');
+      expect(RegExp(r'^version:\s*2\.6\.0\+33\s*$', multiLine: true).hasMatch(_read('pubspec.yaml')),
+          isTrue, reason: 'pubspec version must be 2.6.0+33, the build that carries the multiwallet set, hide balances, the screen-capture setting and the company price route; Info.plist carries ITSAppUsesNonExemptEncryption false, so the upload answers export compliance as it lands');
     });
   });
 }
