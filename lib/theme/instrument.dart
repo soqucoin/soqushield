@@ -100,6 +100,25 @@ const String kLabel = '.SF Pro Text';
 // Instrument widgets — the proven, reusable parts of the first instrument pilot.
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// The wordmark, as the splash sets it: heavy, widely tracked capitals. The
+/// tracking trails the last letter, so the same space in front keeps the
+/// word on its axis.
+class InstrumentWordmark extends StatelessWidget {
+  final double size;
+  const InstrumentWordmark({super.key, this.size = 19});
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: EdgeInsets.only(left: size * 0.26),
+        child: Text('SOQUSHIELD',
+            style: TextStyle(
+                color: Instrument.readout,
+                fontSize: size,
+                fontFamily: kSans,
+                fontWeight: FontWeight.w700,
+                letterSpacing: size * 0.26)),
+      );
+}
+
 /// A small glowing status dot (live/active indicator).
 Widget instrumentDot(Color c, {double size = 5}) => Container(
       width: size,
