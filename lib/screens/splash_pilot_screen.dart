@@ -32,8 +32,9 @@ class _SplashPilotScreenState extends ConsumerState<SplashPilotScreen>
   // Seconds since the splash began: the one clock the mark and the text read.
   final ValueNotifier<double> _clock = ValueNotifier(0);
   // How far the mark's points are still thrown from their places.
-  final ValueNotifier<double> _scatter =
-      ValueNotifier(PointScenePainter.gatherScatter(0));
+  final ValueNotifier<double> _scatter = ValueNotifier(
+    PointScenePainter.gatherScatter(0),
+  );
   final PointField _field = PointField.mark();
   late final Ticker _ticker;
   double _clockBase = 0;
@@ -63,6 +64,9 @@ class _SplashPilotScreenState extends ConsumerState<SplashPilotScreen>
     if (still) {
       _ticker.stop();
       _clock.value = _settled;
+      // The still frame is the gathered mark. Should motion come back, the
+      // first frame painted before the ticker runs again must be it too.
+      _scatter.value = 0;
     } else if (!_ticker.isActive) {
       // First run, or motion allowed again: carry on from where the clock is.
       _clockBase = _still ? PointScenePainter.assembleSeconds : _clock.value;
@@ -136,84 +140,129 @@ class _SplashPilotScreenState extends ConsumerState<SplashPilotScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Instrument.void0,
-      body: LayoutBuilder(builder: (context, box) {
-        final w = box.maxWidth, h = box.maxHeight;
-        // The mark sits a little above the middle, the text under it.
-        final side = math.min(math.min(w * 0.66, h * 0.36), 320.0);
-        final mark = Rect.fromCenter(
-            center: Offset(w / 2, h * 0.43), width: side, height: side);
-        return Stack(
-          children: [
-            Positioned.fill(
-              child: RepaintBoundary(
-                child: CustomPaint(
-                  painter: PointScenePainter(
+      body: LayoutBuilder(
+        builder: (context, box) {
+          final w = box.maxWidth, h = box.maxHeight;
+          final pad = MediaQuery.paddingOf(context);
+          // Each line gets a box sized from the text scale and fits itself to
+          // it, so the heights below are exact at any text size.
+          final scale = MediaQuery.textScalerOf(context).scale(1);
+          final wordH = 19 * 1.35 * scale;
+          final tagH = 10 * 1.6 * scale;
+          final footH = 9.5 * 1.6 * scale;
+          const lineGap = 12.0;
+          final textH = wordH + lineGap + tagH;
+          final footTop = h - pad.bottom - 28 - footH;
+          // The mark sits a little above the middle, the text under it. On a
+          // short screen (a phone on its side, a large text size) the mark
+          // shrinks and moves up, so the text always clears the footer.
+          final wanted = math.min(math.min(w * 0.66, h * 0.36), 320.0);
+          final gap = math.max(20.0, wanted * 0.14);
+          final groupEnd =
+              footTop - 16; // where the text under the mark must end
+          final side = math.max(
+            40.0,
+            math.min(wanted, groupEnd - textH - gap - pad.top),
+          );
+          final lowest = groupEnd - textH - gap - side / 2;
+          final cy = math.max(pad.top + side / 2, math.min(h * 0.43, lowest));
+          final mark = Rect.fromCenter(
+            center: Offset(w / 2, cy),
+            width: side,
+            height: side,
+          );
+          return Stack(
+            children: [
+              Positioned.fill(
+                child: RepaintBoundary(
+                  child: CustomPaint(
+                    painter: PointScenePainter(
                       field: _field,
                       clock: _clock,
                       scatter: _scatter,
                       frame: mark,
-                      still: _still),
+                      still: _still,
+                    ),
+                  ),
                 ),
               ),
-            ),
-            Positioned(
-              left: 24,
-              right: 24,
-              top: mark.bottom + math.max(20, side * 0.14),
-              child: Column(
-                children: [
-                  _Entrance(
-                    clock: _clock,
-                    from: 1.0,
-                    child: const InstrumentWordmark(),
-                  ),
-                  const SizedBox(height: 12),
-                  _Entrance(
-                    clock: _clock,
-                    from: 1.25,
-                    child: Text('SELF-CUSTODIAL · POST-QUANTUM',
-                        style: Instrument.eyebrow(size: 10)),
-                  ),
-                ],
+              Positioned(
+                left: 24,
+                right: 24,
+                top: mark.bottom + gap,
+                child: Column(
+                  children: [
+                    _Entrance(
+                      clock: _clock,
+                      from: 1.0,
+                      height: wordH,
+                      child: const InstrumentWordmark(),
+                    ),
+                    const SizedBox(height: lineGap),
+                    _Entrance(
+                      clock: _clock,
+                      from: 1.25,
+                      height: tagH,
+                      child: Text(
+                        'SELF-CUSTODIAL · POST-QUANTUM',
+                        style: Instrument.eyebrow(size: 10),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            Positioned(
-              left: 24,
-              right: 24,
-              bottom: MediaQuery.paddingOf(context).bottom + 28,
-              child: _Entrance(
-                clock: _clock,
-                from: 1.5,
-                rise: 0,
-                child: Text('ML-DSA-44 · FIPS 204',
+              Positioned(
+                left: 24,
+                right: 24,
+                top: footTop,
+                child: _Entrance(
+                  clock: _clock,
+                  from: 1.5,
+                  height: footH,
+                  rise: 0,
+                  child: Text(
+                    'ML-DSA-44 · FIPS 204',
                     style: Instrument.eyebrow(
-                        size: 9.5, color: Instrument.faint)),
+                      size: 9.5,
+                      color: Instrument.faint,
+                    ),
+                  ),
+                ),
               ),
-            ),
-          ],
-        );
-      }),
+            ],
+          );
+        },
+      ),
     );
   }
 }
 
 /// A line of the splash coming in: it fades up over 0.6 s from [from]
 /// seconds on the splash clock, rising [rise] points as it does. The line
-/// scales down to fit a narrow screen or a large text size.
+/// sits in a box [height] tall and scales down to fit it, and the screen's
+/// width, on a narrow screen or at a large text size.
 class _Entrance extends StatelessWidget {
-  const _Entrance(
-      {required this.clock,
-      required this.from,
-      required this.child,
-      this.rise = 6});
+  const _Entrance({
+    required this.clock,
+    required this.from,
+    required this.height,
+    required this.child,
+    this.rise = 6,
+  });
   final ValueListenable<double> clock;
   final double from;
+  final double height;
   final double rise;
   final Widget child;
 
   @override
   Widget build(BuildContext context) {
-    final line = Center(child: FittedBox(fit: BoxFit.scaleDown, child: child));
+    final line = SizedBox(
+      height: height,
+      child: Center(
+        child: FittedBox(fit: BoxFit.scaleDown, child: child),
+      ),
+    );
     return ValueListenableBuilder<double>(
       valueListenable: clock,
       child: line,
@@ -222,7 +271,9 @@ class _Entrance extends StatelessWidget {
         return Opacity(
           opacity: e,
           child: Transform.translate(
-              offset: Offset(0, rise * (1 - e)), child: line),
+            offset: Offset(0, rise * (1 - e)),
+            child: line,
+          ),
         );
       },
     );

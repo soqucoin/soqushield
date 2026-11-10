@@ -87,10 +87,7 @@ void main() {
       expect(a, greaterThanOrEqualTo(last));
       last = a;
     }
-    expect(
-      PointScenePainter.assemblyAt(PointScenePainter.assembleSeconds),
-      1,
-    );
+    expect(PointScenePainter.assemblyAt(PointScenePainter.assembleSeconds), 1);
     expect(PointScenePainter.assemblyAt(60), 1);
   });
 
@@ -164,8 +161,11 @@ void main() {
 
     reduced.value = false;
     await t.pump();
-    await t.pump(const Duration(milliseconds: 100));
+    // The first frame with motion back, before the ticker has run again.
     expect(_painter(t).still, isFalse);
+    expect(_painter(t).scatter!.value, 0, reason: 'the mark stays whole');
+    await t.pump(const Duration(milliseconds: 100));
+    expect(_painter(t).scatter!.value, 0);
     expect(_opacity(t, 'SOQUSHIELD'), 1, reason: 'the mark does not regather');
     final moving = _painter(t).clock.value;
     await t.pump(const Duration(milliseconds: 100));
@@ -174,24 +174,52 @@ void main() {
     await _leave(t);
   });
 
-  testWidgets('every line fits a narrow phone at the largest text size', (
-    t,
-  ) async {
-    t.view.physicalSize = const Size(320, 568);
-    t.view.devicePixelRatio = 1;
-    addTearDown(t.view.reset);
-    t.platformDispatcher.textScaleFactorTestValue = 2.0;
-    addTearDown(t.platformDispatcher.clearTextScaleFactorTestValue);
-    await t.pumpWidget(_app(_router(), AuthStatus.locked));
-    await t.pump(const Duration(seconds: 2));
-    expect(t.takeException(), isNull);
-    for (final line in _lines) {
-      final box = t.getRect(find.text(line));
-      expect(box.left, greaterThanOrEqualTo(0), reason: line);
-      expect(box.right, lessThanOrEqualTo(320), reason: line);
-    }
-    final mark = _painter(t).frame;
-    expect(t.getRect(find.text('SOQUSHIELD')).top, greaterThan(mark.bottom));
+  testWidgets('launched under reduced motion, the mark is whole on the first '
+      'frame after motion is allowed', (t) async {
+    final reduced = ValueNotifier(true);
+    await t.pumpWidget(_app(_router(), AuthStatus.locked, reduced: reduced));
+    await t.pump();
+    reduced.value = false;
+    await t.pump();
+    expect(_painter(t).still, isFalse);
+    expect(_painter(t).scatter!.value, 0);
+    expect(_opacity(t, 'SOQUSHIELD'), 1);
     await _leave(t);
   });
+
+  for (final (name, size) in const [
+    ('a narrow phone', Size(320, 568)),
+    ('a phone on its side', Size(667, 375)),
+    ('a small phone on its side', Size(568, 320)),
+  ]) {
+    testWidgets('on $name at twice the text size the mark, the text under it '
+        'and the footer stay on the screen and clear of each other', (t) async {
+      t.view.physicalSize = size;
+      t.view.devicePixelRatio = 1;
+      addTearDown(t.view.reset);
+      t.platformDispatcher.textScaleFactorTestValue = 2.0;
+      addTearDown(t.platformDispatcher.clearTextScaleFactorTestValue);
+      await t.pumpWidget(_app(_router(), AuthStatus.locked));
+      await t.pump(const Duration(seconds: 2));
+      expect(t.takeException(), isNull);
+      final screen = Offset.zero & size;
+      final [word, tag, foot] = [
+        for (final l in _lines) t.getRect(find.text(l)),
+      ];
+      for (final box in [word, tag, foot]) {
+        expect(screen.contains(box.topLeft), isTrue, reason: '$box');
+        expect(
+          screen.contains(box.bottomRight - const Offset(0.01, 0.01)),
+          isTrue,
+          reason: '$box',
+        );
+      }
+      final mark = _painter(t).frame;
+      expect(mark.top, greaterThanOrEqualTo(0));
+      expect(word.top, greaterThan(mark.bottom));
+      expect(tag.top, greaterThanOrEqualTo(word.bottom));
+      expect(foot.top, greaterThan(tag.bottom), reason: 'clear of the footer');
+      await _leave(t);
+    });
+  }
 }
