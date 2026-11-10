@@ -63,14 +63,11 @@ class RiskDisclosureScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const SizedBox(height: 12),
-                  const Text('Important Information',
-                      style: TextStyle(
-                          color: Instrument.readout,
-                          fontSize: 19,
-                          fontWeight: FontWeight.w400)),
-                  const SizedBox(height: 6),
-                  Text('Please review before continuing',
-                      style: TextStyle(color: Instrument.faint, fontSize: 12)),
+                  const InstrumentPageHead(
+                    title: 'Important Information',
+                    lead: 'Please review before continuing',
+                    size: 22,
+                  ),
                 ],
               ),
             ),

@@ -131,17 +131,11 @@ class _SeedBackupScreenState extends ConsumerState<SeedBackupScreen> {
                         pageScrolls ? MainAxisSize.min : MainAxisSize.max,
                     children: [
                       const SizedBox(height: 12),
-                      const Text('Write down these 24 words in order.',
-                          style: TextStyle(
-                              color: Instrument.readout,
-                              fontSize: 19,
-                              fontWeight: FontWeight.w400)),
-                      const SizedBox(height: 6),
-                      Text('This is the ONLY way to recover your wallet.',
-                          style: TextStyle(
-                              color: Instrument.faint,
-                              fontSize: 12,
-                              height: 1.4)),
+                      const InstrumentPageHead(
+                        title: 'Write down these 24 words in order.',
+                        lead: 'This is the ONLY way to recover your wallet.',
+                        size: 22,
+                      ),
                       const SizedBox(height: 14),
                       _warning(),
                       const SizedBox(height: 14),
