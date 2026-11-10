@@ -1,0 +1,1 @@
+The opening and setup screens have a new look. Version 2.6.0 added more than one wallet. Each wallet keeps its own recovery phrase. Hide balances became a setting. Screenshots, screen recording and casting can be blocked. Settings can show what a balance is worth in money. It is off by default.

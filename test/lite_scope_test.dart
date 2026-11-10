@@ -984,8 +984,8 @@ void main() {
   group('version', () {
     test('is the lite release', () {
       expect(kAppVersion, 'v2.6.1');
-      expect(RegExp(r'^version:\s*2\.6\.1\+34\s*$', multiLine: true).hasMatch(_read('pubspec.yaml')),
-          isTrue, reason: 'pubspec version must be 2.6.1+34, the build that carries the 2.6.0 set (the multiwallet set, hide balances, the screen-capture setting and the company price route) and the point scene on the opening and setup screens; Info.plist carries ITSAppUsesNonExemptEncryption false, so the upload answers export compliance as it lands');
+      expect(RegExp(r'^version:\s*2\.6\.1\+35\s*$', multiLine: true).hasMatch(_read('pubspec.yaml')),
+          isTrue, reason: 'pubspec version must be 2.6.1+35, the build that carries the 2.6.0 set (the multiwallet set, hide balances, the screen-capture setting and the company price route) and the point scene on the opening and setup screens; Info.plist carries ITSAppUsesNonExemptEncryption false, so the upload answers export compliance as it lands');
     });
   });
 }
