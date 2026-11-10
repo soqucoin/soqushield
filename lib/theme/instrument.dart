@@ -48,7 +48,9 @@ class Instrument {
   static const signalDim = Color(0xFF8A4A26); // copper-dim (figure idle tone)
   static const readout = Color(0xFFE9EDF2); // text-hi (data/values)
   static const label = Color(0xFFAAB4C0); // text-mid (keys, labels)
-  static const faint = Color(0xFF717D8B); // text-lo (tertiary)
+  // text-lo (tertiary): the site's --muted-2, 6:1 on the ground, so the
+  // small print under a heading reads without effort.
+  static const faint = Color(0xFF8591A0);
   static const line = Color(0xFF232C38); // seam hairline
   static const lineHi = Color(0xFF313D4C); // seam-hi — button borders, hover seams
   static const leadEdge = Color(0xFFF0A36E); // copper-hot — a wavefront's crest
@@ -66,6 +68,22 @@ class Instrument {
   /// the label lifts off the canvas instead of blending into it. Default tone
   /// is the label accent; pass [color] to re-purpose (threat red on a failed
   /// state, label-taupe for quiet secondary chips).
+  /// A screen's heading, as the site sets its own: heavy Archivo, set tight.
+  /// The weight carries the hierarchy, so a heading needs no extra size.
+  static TextStyle heading({double size = 24, Color color = readout}) =>
+      TextStyle(
+        color: color,
+        fontSize: size,
+        fontFamily: kSans,
+        fontWeight: FontWeight.w700,
+        letterSpacing: -0.01 * size,
+        height: 1.12,
+      );
+
+  /// The line under a heading: what the screen is for, in plain words.
+  static TextStyle lead({double size = 13.5}) =>
+      TextStyle(color: label, fontSize: size, height: 1.45);
+
   static TextStyle eyebrow({
     double size = 11,
     Color color = label, // foundry: labels are muted slate; copper = live/action only
@@ -99,6 +117,45 @@ const String kLabel = '.SF Pro Text';
 // ─────────────────────────────────────────────────────────────────────────────
 // Instrument widgets — the proven, reusable parts of the first instrument pilot.
 // ─────────────────────────────────────────────────────────────────────────────
+
+/// The wordmark, as the splash sets it: heavy, widely tracked capitals. The
+/// tracking trails the last letter, so the same space in front keeps the
+/// word on its axis.
+class InstrumentWordmark extends StatelessWidget {
+  final double size;
+  const InstrumentWordmark({super.key, this.size = 19});
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: EdgeInsets.only(left: size * 0.26),
+        child: Text('SOQUSHIELD',
+            style: TextStyle(
+                color: Instrument.readout,
+                fontSize: size,
+                fontFamily: kSans,
+                fontWeight: FontWeight.w700,
+                letterSpacing: size * 0.26)),
+      );
+}
+
+/// The head of a reading screen: its heading and the line under it.
+class InstrumentPageHead extends StatelessWidget {
+  final String title;
+  final String? lead;
+  final double size;
+  const InstrumentPageHead(
+      {super.key, required this.title, this.lead, this.size = 24});
+  @override
+  Widget build(BuildContext context) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: Instrument.heading(size: size)),
+          if (lead != null) ...[
+            const SizedBox(height: 8),
+            Text(lead!, style: Instrument.lead()),
+          ],
+        ],
+      );
+}
 
 /// A small glowing status dot (live/active indicator).
 Widget instrumentDot(Color c, {double size = 5}) => Container(

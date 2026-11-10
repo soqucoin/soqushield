@@ -29,6 +29,7 @@ import 'package:soqushield/services/auth_service.dart';
 import 'package:soqushield/services/weather_service.dart';
 import 'package:soqushield/theme/instrument.dart';
 import 'package:soqushield/theme/motion.dart';
+import 'package:soqushield/theme/point_scene.dart';
 
 import 'lite_test_support.dart';
 
@@ -456,28 +457,34 @@ void main() {
     });
 
     testWidgets(
-        'the welcome lattice comes online once through the guarded start, '
-        'and under reduced motion is settled with no sweep', (tester) async {
+        'the welcome mark rests in drifting points, silently, and under '
+        'reduced motion is one still frame', (tester) async {
       _surface(tester);
+      PointScenePainter mark() => tester
+          .widgetList<CustomPaint>(find.byType(CustomPaint))
+          .map((c) => c.painter)
+          .whereType<PointScenePainter>()
+          .single;
+
       await tester.pumpWidget(_app(const WelcomePilotScreen(),
           feed: const Stream<ChainWeather>.empty()));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
-      var figure = tester.state(find.byType(WelcomePilotScreen))
-          as InstrumentFigureMixin;
-      expect(figure.pulse.isAnimating, isTrue, reason: 'crystallising');
+      expect(mark().still, isFalse);
+      final at = mark().clock.value;
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(mark().clock.value, greaterThan(at), reason: 'the points drift');
       expect(buzzed(), isFalse, reason: 'silent, as before');
-      await tester.pump(const Duration(milliseconds: 1300));
       await tester.pumpWidget(const SizedBox.shrink());
 
       await tester.pumpWidget(_app(const WelcomePilotScreen(),
           feed: const Stream<ChainWeather>.empty(), reduced: true));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
-      figure = tester.state(find.byType(WelcomePilotScreen))
-          as InstrumentFigureMixin;
-      expect(figure.pulse.isAnimating, isFalse, reason: 'settled, no sweep');
-      expect(figure.breath.isAnimating, isFalse);
+      expect(mark().still, isTrue, reason: 'settled, at rest');
+      final held = mark().clock.value;
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(mark().clock.value, held, reason: 'nothing runs');
       await tester.pumpWidget(const SizedBox.shrink());
     });
 

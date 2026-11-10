@@ -44,13 +44,7 @@ class GuideArticleScreen extends StatelessWidget {
                     child: ListView(
                       padding: const EdgeInsets.fromLTRB(22, 0, 22, 30),
                       children: [
-                        Text(article.title,
-                            style: const TextStyle(
-                              color: Instrument.readout,
-                              fontSize: 24,
-                              fontWeight: FontWeight.w600,
-                              height: 1.2,
-                            )),
+                        Text(article.title, style: Instrument.heading()),
                         const SizedBox(height: 6),
                         Text(article.tagline,
                             style: const TextStyle(

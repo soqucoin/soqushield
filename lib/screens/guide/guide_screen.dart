@@ -41,19 +41,10 @@ class GuideScreen extends StatelessWidget {
             const SizedBox(height: 6),
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 22),
-              child: Text('How to use SoquShield',
-                  style: TextStyle(
-                    color: Instrument.readout,
-                    fontSize: 24,
-                    fontWeight: FontWeight.w600,
-                  )),
-            ),
-            const SizedBox(height: 4),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 22),
-              child: Text(
-                'Short, step-by-step answers. No jargon without a plain-words translation.',
-                style: TextStyle(color: Instrument.faint, fontSize: 12.5, height: 1.4),
+              child: InstrumentPageHead(
+                title: 'How to use SoquShield',
+                lead: 'Short, step-by-step answers. No jargon without a '
+                    'plain-words translation.',
               ),
             ),
             const SizedBox(height: 8),

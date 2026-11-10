@@ -1,12 +1,12 @@
-// PILOT — Create Account ("Activation") on the instrument language.
-//
-// Wave 3 — the highest-emotion moment. Figure: the CRYSTALLIZING LATTICE — on
-// Activate, the lattice assembles from noise into ordered structure: your
-// post-quantum keys coming online. Logic preserved verbatim from
-// CreateAccountScreen (createAccount → biometric pref → createWallet (ML-DSA-44)
-// → onAccountCreated → /seed-backup; name validation). Old at /create-account-classic.
+// Create Account ("Activation"). The figure is the module lattice, the
+// structure ML-DSA rests on, in points and edges. On Activate it bursts apart
+// and locks back into order: the keys coming online. Logic preserved verbatim
+// from CreateAccountScreen (createAccount → biometric pref → createWallet
+// (ML-DSA-44) → onAccountCreated → /seed-backup; name validation).
 //
 // Copyright 2026 Soqucoin Labs Inc.
+
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -15,7 +15,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../theme/instrument.dart';
-import '../../theme/figures.dart';
+import '../../theme/point_scene.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/wallet_provider.dart';
 
@@ -28,16 +28,21 @@ class CreateAccountPilotScreen extends ConsumerStatefulWidget {
 
 class _CreateAccountPilotScreenState
     extends ConsumerState<CreateAccountPilotScreen>
-    with TickerProviderStateMixin, InstrumentFigureMixin {
+    with SingleTickerProviderStateMixin {
   final _nameController = TextEditingController();
   final _focusNode = FocusNode();
   bool _enableBiometric = true;
   bool _creating = false;
 
+  final PointField _lattice = PointField.lattice();
+  // The burst on Activate: the points fly apart and come back into order.
+  late final AnimationController _burst = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 1500));
+  late final Animation<double> _scatter = _burst.drive(_Burst());
+
   @override
   void initState() {
     super.initState();
-    initFigure();
     WidgetsBinding.instance.addPostFrameCallback((_) => _focusNode.requestFocus());
   }
 
@@ -45,7 +50,7 @@ class _CreateAccountPilotScreenState
   void dispose() {
     _nameController.dispose();
     _focusNode.dispose();
-    disposeFigure();
+    _burst.dispose();
     super.dispose();
   }
 
@@ -77,9 +82,9 @@ class _CreateAccountPilotScreenState
 
     setState(() => _creating = true);
     if (!kIsWeb) HapticFeedback.mediumImpact();
-    // The lattice crystallises — keys coming online (the haptic above is
-    // the confirmation; the sweep is skipped under reduced motion).
-    fireFigure(1, haptic: false);
+    // The lattice bursts and reorders — keys coming online (the haptic above
+    // is the confirmation; the figure holds still under reduced motion).
+    _burst.forward(from: 0);
 
     try {
       final service = ref.read(authServiceProvider);
@@ -113,6 +118,7 @@ class _CreateAccountPilotScreenState
 
   @override
   Widget build(BuildContext context) {
+    final typing = MediaQuery.viewInsetsOf(context).bottom > 0;
     return Scaffold(
       backgroundColor: Instrument.void0,
       body: SafeArea(
@@ -123,36 +129,26 @@ class _CreateAccountPilotScreenState
             children: [
               _topBar(),
               const SizedBox(height: 8),
-              RepaintBoundary(
-                child: AnimatedBuilder(
-                  animation: figureListenable,
-                  builder: (_, _) => SizedBox(
-                    height: 168,
-                    width: double.infinity,
-                    child: CustomPaint(
-                      painter: CrystallizingLatticePainter(
-                        breath: breath.value,
-                        pulse: pulseValue,
-                      ),
-                    ),
-                  ),
-                ),
+              // The figure gives way to the keyboard, so the name field and
+              // Activate stay in view while the name is typed.
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+                height: typing ? 108 : 176,
+                width: double.infinity,
+                child: PointScene(field: _lattice, scatter: _scatter),
               ),
-              const SizedBox(height: 4),
-              Text('K E Y   G E N E S I S',
-                  style: Instrument.eyebrow(size: 7.5)),
-              const SizedBox(height: 26),
+              const SizedBox(height: 6),
+              Text('KEY GENESIS · MODULE LATTICE',
+                  style: Instrument.eyebrow(size: 9, color: Instrument.faint)),
+              const SizedBox(height: 18),
               Text('Name your wallet',
-                  style: TextStyle(
-                      color: Instrument.readout,
-                      fontSize: 19,
-                      fontWeight: FontWeight.w400)),
+                  textAlign: TextAlign.center,
+                  style: Instrument.heading(size: 22)),
               const SizedBox(height: 6),
               Text('Your post-quantum keys are generated on this device.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      color: Instrument.faint, fontSize: 12, height: 1.4)),
-              const SizedBox(height: 22),
+                  textAlign: TextAlign.center, style: Instrument.lead(size: 13)),
+              const SizedBox(height: 18),
               _nameField(),
               const SizedBox(height: 14),
               _biometricToggle(),
@@ -299,4 +295,10 @@ class _CreateAccountPilotScreenState
           ),
         ),
       );
+}
+
+/// The burst's scatter over its run, in scene units: out, then back to rest.
+class _Burst extends Animatable<double> {
+  @override
+  double transform(double t) => 2.4 * math.sin(math.pi * t);
 }
