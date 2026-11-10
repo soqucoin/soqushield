@@ -96,17 +96,12 @@ class _SeedRestoreScreenState extends ConsumerState<SeedRestoreScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const SizedBox(height: 12),
-                  const Text('Restore Wallet',
-                      style: TextStyle(
-                          color: Instrument.readout,
-                          fontSize: 19,
-                          fontWeight: FontWeight.w400)),
-                  const SizedBox(height: 6),
-                  Text(
-                      'Enter your 24-word recovery phrase to restore your '
-                      'wallet on this device.',
-                      style: TextStyle(
-                          color: Instrument.faint, fontSize: 12, height: 1.4)),
+                  const InstrumentPageHead(
+                    title: 'Restore Wallet',
+                    lead: 'Enter your 24-word recovery phrase to restore your '
+                        'wallet on this device.',
+                    size: 22,
+                  ),
                   const SizedBox(height: 12),
                   InstrumentActionChip(
                     label: 'Paste from clipboard',

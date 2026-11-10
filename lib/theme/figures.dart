@@ -4,9 +4,9 @@
 // differs. Screens construct a painter per frame from their animation values.
 //
 // Every figure here carries real data at its call site. What remains:
-// NttButterflyPainter (Send's signing phase), CrystallizingLatticePainter
-// (activation/lock key events), the AssetGlyph marks, and TxAnatomyPainter
-// (the Send instrument's stat schematic).
+// NttButterflyPainter (Send's signing phase), the AssetGlyph marks, and
+// TxAnatomyPainter (the Send instrument's stat schematic). The mark and the
+// lattice of the onboarding screens are in point_scene.dart.
 //
 // Copyright 2026 Soqucoin Labs Inc.
 
@@ -148,103 +148,6 @@ class NttButterflyPainter extends CustomPainter {
       old.pulse != pulse ||
       old.dir != dir ||
       old.accent != accent;
-}
-
-/// The CRYSTALLIZING LATTICE — keys born from quantum-hard noise into ordered
-/// structure. At rest the lattice is settled and breathes. On an event the
-/// "crystallize" parameter sweeps 0→1: nodes fly in from scattered noise to their
-/// exact lattice positions and the edges materialise — the "Activation" moment,
-/// your keys coming online. crystallize = the pulse while active, else 1 (settled).
-class CrystallizingLatticePainter extends CustomPainter {
-  final double breath;
-  final double pulse; // 0..1 = crystallising; <0 = settled
-  final Color accent;
-  final Color accentDim;
-  CrystallizingLatticePainter({
-    required this.breath,
-    required this.pulse,
-    this.accent = Instrument.signal,
-    this.accentDim = Instrument.signalDim,
-  });
-
-  static const int nx = 4; // 9 cols
-  static const int ny = 3; // 7 rows
-
-  // deterministic per-node hash → noise offset (no Math.random in paint)
-  static double _h(int i, int j, int salt) {
-    final x = math.sin(i * 127.1 + j * 311.7 + salt * 74.7) * 43758.5453;
-    return x - x.floorToDouble();
-  }
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final mx = size.width * 0.14, my = size.height * 0.14;
-    final left = mx, right = size.width - mx, top = my, bottom = size.height - my;
-    final cx = (left + right) / 2, cy = (top + bottom) / 2;
-    final colDx = (right - left) / (2 * nx), rowDy = (bottom - top) / (2 * ny);
-    final amp = (colDx + rowDy) * 1.6; // how far the noise scatters nodes
-
-    final breathA = 0.5 + 0.5 * math.sin(breath * 2 * math.pi);
-    final c = (pulse < 0 ? 1.0 : pulse).clamp(0.0, 1.0); // crystallisation 0..1
-    final ease = c * c * (3 - 2 * c); // smoothstep
-    final order = ease; // 0 = noise, 1 = ordered
-
-    Offset pos(int i, int j) {
-      final ordered = Offset(cx + i * colDx, cy + j * rowDy);
-      final ang = _h(i, j, 1) * 2 * math.pi;
-      final mag = (0.4 + _h(i, j, 2)) * amp * (1 - order);
-      return ordered + Offset(math.cos(ang) * mag, math.sin(ang) * mag);
-    }
-
-    Color heat(double a) =>
-        Color.lerp(accentDim, accent, order)!.withValues(alpha: a.clamp(0.0, 1.0));
-
-    // ── edges materialise as the lattice orders (alpha ∝ order²) ──
-    final ep = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeWidth = 0.7;
-    final edgeA = order * order * 0.16 * (0.6 + 0.4 * breathA);
-    if (edgeA > 0.004) {
-      ep.color = heat(edgeA);
-      for (var i = -nx; i <= nx; i++) {
-        for (var j = -ny; j <= ny; j++) {
-          final p = pos(i, j);
-          if (i < nx) canvas.drawLine(p, pos(i + 1, j), ep);
-          if (j < ny) canvas.drawLine(p, pos(i, j + 1), ep);
-        }
-      }
-    }
-
-    // ── nodes: dim & scattered in noise, bright & sharp when ordered ──
-    final np = Paint()..style = PaintingStyle.fill;
-    for (var i = -nx; i <= nx; i++) {
-      for (var j = -ny; j <= ny; j++) {
-        final p = pos(i, j);
-        final a = (0.12 + 0.20 * order) * (0.6 + 0.4 * breathA);
-        np
-          ..color = heat(a)
-          ..maskFilter = order > 0.7
-              ? MaskFilter.blur(BlurStyle.normal, (order - 0.7) * 6)
-              : null;
-        canvas.drawCircle(p, 1.2 + 1.4 * order, np);
-      }
-    }
-
-    // ── the core glow — your key, condensing into being as it orders ──
-    final coreA = (0.15 + 0.45 * order) * (0.7 + 0.3 * breathA);
-    canvas.drawCircle(
-        Offset(cx, cy),
-        2.0 + 5.0 * order + 1.5 * breathA,
-        Paint()
-          ..color = Color.lerp(accent, Instrument.leadEdge, order * 0.5)!
-              .withValues(alpha: coreA)
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, 3 + 7 * order));
-  }
-
-  @override
-  bool shouldRepaint(covariant CrystallizingLatticePainter old) =>
-      old.breath != breath || old.pulse != pulse || old.accent != accent;
 }
 
 /// A small precise asset mark next to an asset row: a lattice node (SOQ,

@@ -1,8 +1,7 @@
-// PILOT — Lock (biometric re-auth) on the instrument language.
-//
-// Wave 3. Figure: the CRYSTALLIZING LATTICE, settled — your keys exist, held,
-// locked. Auth + SB-5 anti-brute-force backoff preserved verbatim from
-// LockScreen. Old at /lock-classic.
+// Lock (device re-auth). The Soqucoin mark rests in points: the keys exist,
+// held, locked. A band of light scans it while the device checks the
+// credential. Auth + SB-5 anti-brute-force backoff preserved verbatim from
+// LockScreen.
 //
 // Copyright 2026 Soqucoin Labs Inc.
 
@@ -15,7 +14,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../theme/instrument.dart';
-import '../../theme/figures.dart';
+import '../../theme/point_scene.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/session_provider.dart';
 import '../../services/auth_service.dart' show AuthOutcome;
@@ -26,8 +25,9 @@ class LockPilotScreen extends ConsumerStatefulWidget {
   ConsumerState<LockPilotScreen> createState() => _LockPilotScreenState();
 }
 
-class _LockPilotScreenState extends ConsumerState<LockPilotScreen>
-    with TickerProviderStateMixin, InstrumentFigureMixin {
+class _LockPilotScreenState extends ConsumerState<LockPilotScreen> {
+  // Fewer points than the splash: the figure is smaller here.
+  final PointField _mark = PointField.mark(count: 1150);
   bool _authenticating = false;
   bool _failed = false;
   bool _noDeviceAuth = false;
@@ -47,7 +47,6 @@ class _LockPilotScreenState extends ConsumerState<LockPilotScreen>
   @override
   void initState() {
     super.initState();
-    initFigure();
     WidgetsBinding.instance.addPostFrameCallback((_) => _promptWhenActive());
   }
 
@@ -102,7 +101,6 @@ class _LockPilotScreenState extends ConsumerState<LockPilotScreen>
   void dispose() {
     _lockoutTicker?.cancel();
     _slowTimer?.cancel();
-    disposeFigure();
     super.dispose();
   }
 
@@ -229,36 +227,26 @@ class _LockPilotScreenState extends ConsumerState<LockPilotScreen>
           child: Column(
             children: [
               const Spacer(flex: 2),
-              RepaintBoundary(
-                child: AnimatedBuilder(
-                  animation: figureListenable,
-                  builder: (_, _) => SizedBox(
-                    height: 168,
-                    width: double.infinity,
-                    child: CustomPaint(
-                      painter: CrystallizingLatticePainter(
-                        breath: breath.value,
-                        pulse: pulseValue,
-                      ),
-                    ),
-                  ),
-                ),
+              SizedBox(
+                height: 184,
+                width: double.infinity,
+                child: PointScene(field: _mark, scan: _authenticating),
               ),
-              const SizedBox(height: 20),
-              Text(name != null ? 'Welcome back' : 'SOQUSHIELD',
-                  style: TextStyle(
-                      color: Instrument.readout,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w400,
-                      letterSpacing: name != null ? 0.5 : 4)),
+              const SizedBox(height: 24),
               if (name != null) ...[
-                const SizedBox(height: 6),
+                Text('Welcome back',
+                    textAlign: TextAlign.center,
+                    style: Instrument.heading(size: 22)),
+                const SizedBox(height: 8),
                 Text(name,
                     style: TextStyle(
                         color: Instrument.label,
                         fontSize: 13,
                         fontFamily: kMono)),
-              ],
+              ] else
+                const FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: InstrumentWordmark(size: 18)),
               const Spacer(flex: 3),
               _status(inLockout, remaining),
               const Spacer(flex: 2),
