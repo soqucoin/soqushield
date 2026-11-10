@@ -62,7 +62,9 @@ builds.
 `pubspec.yaml` carries `version: major.minor.patch+build`. The build number rises
 on every upload. A merge to `main` uploads to TestFlight and the Play internal
 track. A tag `v<version>-build<build>` promotes that build to production after the
-approval step. Before an upload, `integration_test/real_flow_test.dart` runs on an
+approval step. The same tag publishes the Android APK on the GitHub Releases page,
+after the same approval step and only when it carries the certificate of every
+earlier APK (`scripts/apk_release.py`). Before an upload, `integration_test/real_flow_test.dart` runs on an
 iOS simulator and on an Android emulator, and the pull request names the run.
 
 Signing material and store credentials live in the repository's Actions secrets

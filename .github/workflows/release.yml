@@ -4,6 +4,12 @@
 # settings). Every credential is an Actions secret the account owner sets; nothing here reads key
 # material from the tree, and a pull request from a fork runs with no secret at all.
 #
+# The same tag puts the Android APK on the GitHub Releases page. One job builds it from the tagged
+# commit with the keystore and holds no write permission. A second job, behind the production
+# approval step, holds the write permission and no keystore: it reads the certificate out of the
+# built file again, and publishes the release only when that is the one certificate every earlier
+# APK was signed with (scripts/apk_release.py). A release that exists is never written over.
+#
 # Secrets, in both environments:
 #   ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8   an App Store Connect API key (App Manager); the .p8 as text
 #   PLAY_SERVICE_ACCOUNT_JSON               the Play Console service account's JSON, as text
@@ -215,6 +221,97 @@ jobs:
         env:
           PLAY_JSON_KEY_PATH: ${{ runner.temp }}/play-service-account.json
         run: cd android && fastlane promote
+
+  # Builds the APK of the tagged commit. This job holds the keystore and can write nothing: the
+  # workflow's token is read-only here, and the APK leaves as a workflow artifact.
+  android-apk:
+    if: github.ref_type == 'tag'
+    needs: version
+    runs-on: ubuntu-latest
+    environment: testing
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Signing material, from the secrets
+        env:
+          ANDROID_UPLOAD_KEYSTORE_B64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_B64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s' "$ANDROID_UPLOAD_KEYSTORE_B64" | base64 -d > android/app/upload-keystore.jks
+          # The same escaping as the bundle's job: Properties.load reads a backslash as an escape
+          # and drops leading whitespace.
+          python3 - <<'PY'
+          import os
+          def esc(v):
+              v = v.replace("\\", "\\\\")
+              return "\\" + v if v[:1] in (" ", "\t") else v
+          with open("android/key.properties", "w", encoding="utf-8") as f:
+              f.write("storeFile=upload-keystore.jks\n")
+              f.write("storePassword=" + esc(os.environ["ANDROID_KEYSTORE_PASSWORD"]) + "\n")
+              f.write("keyAlias=soqushield\n")
+              f.write("keyPassword=" + esc(os.environ["ANDROID_KEY_PASSWORD"]) + "\n")
+          PY
+      - run: flutter pub get
+      - run: flutter build apk --release
+      - name: The APK carries the release certificate and no other
+        run: python3 -I scripts/apk_release.py verify build/app/outputs/flutter-apk/app-release.apk
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  # Publishes the release. This job holds the write permission and no keystore, builds nothing,
+  # and waits on the production approval step. It trusts the artifact no further than the build
+  # job did: the certificate is read out of the file again before anything is published.
+  github-release:
+    if: github.ref_type == 'tag'
+    needs: [version, android-apk]
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      BUILD: ${{ needs.version.outputs.build }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: apk
+          path: ${{ runner.temp }}/apk
+      - name: Check the certificate again, then name the file and write its checksum and the release text
+        run: |
+          set -euo pipefail
+          python3 -I scripts/apk_release.py prepare "$RUNNER_TEMP/apk/app-release.apk" \
+            --version "$VERSION" --build "$BUILD" --out "$RUNNER_TEMP/release"
+          cat "$RUNNER_TEMP/release/notes.md"
+      - name: Publish the release for this tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "a release for $GITHUB_REF_NAME exists already. A published APK is never replaced: its SHA-256 is what people checked."
+            exit 1
+          fi
+          gh release create "$GITHUB_REF_NAME" --verify-tag \
+            --title "SoquShield $VERSION (build $BUILD)" \
+            --notes-file "$RUNNER_TEMP/release/notes.md" \
+            "$RUNNER_TEMP/release/soqushield-v$VERSION-build$BUILD.apk" \
+            "$RUNNER_TEMP/release/SHA256SUMS"
 
   ios-app-store:
     if: github.ref_type == 'tag'
