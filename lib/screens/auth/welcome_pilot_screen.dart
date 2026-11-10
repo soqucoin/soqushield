@@ -21,6 +21,12 @@ class _WelcomePilotScreenState extends ConsumerState<WelcomePilotScreen> {
   // Fewer points than the splash: the figure is smaller here.
   final PointField _mark = PointField.mark(count: 1500);
 
+  // The figure's height when the screen has room for it.
+  static const double _figureHeight = 208;
+
+  // The gaps and the two actions under the figure, with four points to spare.
+  static const double _fixedRest = 26 + 14 + 16 + 54 + 10 + 54 + 4;
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -28,44 +34,65 @@ class _WelcomePilotScreenState extends ConsumerState<WelcomePilotScreen> {
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 28),
-          child: Column(
-            children: [
-              const Spacer(flex: 2),
-              SizedBox(
-                height: 208,
-                width: double.infinity,
-                child: PointScene(field: _mark),
-              ),
-              const SizedBox(height: 26),
-              const FittedBox(
-                fit: BoxFit.scaleDown,
-                child: InstrumentWordmark(size: 20),
-              ),
-              const SizedBox(height: 14),
-              Text(
-                'A self-custodial wallet secured by\npost-quantum cryptography.',
-                textAlign: TextAlign.center,
-                style: Instrument.lead(size: 14),
-              ),
-              const Spacer(flex: 3),
-              InstrumentButton(
-                label: 'Create a wallet',
-                icon: Icons.bolt_rounded,
-                primary: true,
-                onTap: () => context.go('/create-account'),
-              ),
-              const SizedBox(height: 10),
-              _ghostButton(
-                'I already have a wallet',
-                () => context.go('/seed-restore'),
-              ),
-              const Spacer(flex: 1),
-            ],
+          child: LayoutBuilder(
+            builder: (context, box) {
+              // What sits under the figure: the fixed parts, then the wordmark
+              // and the two-line lead, which stand 1.45 times their size tall.
+              final scale = MediaQuery.textScalerOf(context).scale(1);
+              final rest = _fixedRest + (20 + 2 * 14) * 1.45 * scale;
+              if (box.maxHeight >= _figureHeight + rest) {
+                return Column(children: _body(_figureHeight, roomy: true));
+              }
+              // A short screen (a phone on its side, a large text size): the
+              // figure gives way, and the column scrolls if it still does
+              // not fit, so both actions can always be reached.
+              final figure = (box.maxHeight - rest)
+                  .clamp(64.0, _figureHeight)
+                  .toDouble();
+              return SingleChildScrollView(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: box.maxHeight),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: _body(figure, roomy: false),
+                  ),
+                ),
+              );
+            },
           ),
         ),
       ),
     );
   }
+
+  // The screen's parts, top to bottom. With room the spacers place them; on
+  // a short screen they stack with fixed gaps under a smaller figure.
+  List<Widget> _body(double figure, {required bool roomy}) => [
+    if (roomy) const Spacer(flex: 2),
+    SizedBox(
+      height: figure,
+      width: double.infinity,
+      child: PointScene(field: _mark),
+    ),
+    const SizedBox(height: 26),
+    const FittedBox(fit: BoxFit.scaleDown, child: InstrumentWordmark(size: 20)),
+    const SizedBox(height: 14),
+    Text(
+      'A self-custodial wallet secured by\npost-quantum cryptography.',
+      textAlign: TextAlign.center,
+      style: Instrument.lead(size: 14),
+    ),
+    if (roomy) const Spacer(flex: 3) else const SizedBox(height: 16),
+    InstrumentButton(
+      label: 'Create a wallet',
+      icon: Icons.bolt_rounded,
+      primary: true,
+      onTap: () => context.go('/create-account'),
+    ),
+    const SizedBox(height: 10),
+    _ghostButton('I already have a wallet', () => context.go('/seed-restore')),
+    if (roomy) const Spacer(flex: 1),
+  ];
 
   // Foundry .btn secondary: transparent, seam-hi border, mono caps.
   Widget _ghostButton(String label, VoidCallback onTap) => GestureDetector(

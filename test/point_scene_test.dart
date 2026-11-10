@@ -14,7 +14,9 @@ import 'package:soqushield/providers/session_provider.dart';
 import 'package:soqushield/providers/wallet_provider.dart';
 import 'package:soqushield/screens/auth/create_account_pilot_screen.dart';
 import 'package:soqushield/screens/auth/lock_pilot_screen.dart';
+import 'package:soqushield/screens/auth/welcome_pilot_screen.dart';
 import 'package:soqushield/services/auth_service.dart' show AuthOutcome;
+import 'package:soqushield/theme/instrument.dart';
 import 'package:soqushield/theme/point_scene.dart';
 
 import 'lite_test_support.dart';
@@ -50,7 +52,7 @@ Widget _app(
     routerConfig: GoRouter(
       routes: [
         GoRoute(path: '/', builder: (_, _) => screen),
-        for (final p in ['/welcome', '/seed-backup'])
+        for (final p in ['/welcome', '/seed-backup', '/seed-restore'])
           GoRoute(path: p, builder: (_, _) => Text('at $p')),
       ],
     ),
@@ -70,6 +72,58 @@ PointScenePainter _painter(WidgetTester t) => t
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(installSecureStorageMock);
+
+  // The welcome screen on a phone held on its side: the figure gives way, so
+  // both actions stay inside the safe area and the restore action answers a tap.
+  for (final (name, size, inset) in const [
+    ('a phone on its side', Size(852, 393), 21.0),
+    ('a small phone on its side', Size(667, 375), 0.0),
+    ('the smallest phone on its side', Size(568, 320), 0.0),
+  ]) {
+    testWidgets('on $name the welcome screen keeps both actions in reach', (
+      t,
+    ) async {
+      t.view.physicalSize = size;
+      t.view.devicePixelRatio = 1;
+      t.view.padding = FakeViewPadding(bottom: inset);
+      addTearDown(t.view.reset);
+      await t.pumpWidget(_app(const WelcomePilotScreen()));
+      await t.pump();
+      expect(t.takeException(), isNull);
+
+      final restore = find.widgetWithText(
+        GestureDetector,
+        'I ALREADY HAVE A WALLET',
+      );
+      final safeBottom = size.height - inset;
+      for (final action in [find.byType(InstrumentButton), restore]) {
+        final box = t.getRect(action);
+        expect(box.top, greaterThanOrEqualTo(0));
+        expect(box.bottom, lessThanOrEqualTo(safeBottom));
+      }
+      final figure = t.getSize(find.byType(PointScene)).height;
+      expect(figure, lessThan(208));
+      expect(figure, greaterThanOrEqualTo(64));
+
+      await t.tap(restore);
+      await t.pump();
+      await t.pump(const Duration(milliseconds: 500));
+      expect(find.text('at /seed-restore'), findsOneWidget);
+    });
+  }
+
+  testWidgets('on an upright phone the welcome figure keeps its full height', (
+    t,
+  ) async {
+    t.view.physicalSize = const Size(430, 932);
+    t.view.devicePixelRatio = 1;
+    addTearDown(t.view.reset);
+    await t.pumpWidget(_app(const WelcomePilotScreen()));
+    await t.pump();
+    expect(t.takeException(), isNull);
+    expect(t.getSize(find.byType(PointScene)).height, 208);
+    expect(find.byType(SingleChildScrollView), findsNothing);
+  });
 
   test('the lattice is a cube of nodes joined along its three axes', () {
     final lattice = PointField.lattice(perAxis: 6);
