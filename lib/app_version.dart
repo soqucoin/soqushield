@@ -2,4 +2,4 @@
 ///
 /// Must match the `version:` line in pubspec.yaml (build metadata excluded) —
 /// a drift test in test/mainnet_readiness_test.dart enforces this.
-const String kAppVersion = 'v2.6.0';
+const String kAppVersion = 'v2.6.1';
