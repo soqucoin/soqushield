@@ -134,8 +134,16 @@ class _LockPilotScreenState extends ConsumerState<LockPilotScreen> {
     // bead agx: with no screen lock enrolled, authenticate() can NEVER
     // succeed (Android ERROR_NOT_AVAILABLE / iOS passcodeNotSet). Don't
     // burn a failed attempt on it — show enrollment guidance instead.
-    if (!await service.isDeviceAuthAvailable()) {
-      if (!mounted || attempt != _attempt) return;
+    // The answer belongs to the attempt that asked, whatever it says. A tap
+    // to unlock while this check was in flight has already raised a fresh
+    // attempt, and this one must stop here: carrying on would open a second
+    // native prompt beside the one the owner is looking at.
+    final available = await service.isDeviceAuthAvailable();
+    if (!mounted || attempt != _attempt) {
+      debugPrint('LOCK: stale availability for attempt $attempt ignored');
+      return;
+    }
+    if (!available) {
       setState(() {
         _authenticating = false;
         _noDeviceAuth = true;
