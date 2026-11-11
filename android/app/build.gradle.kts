@@ -87,6 +87,24 @@ if (!keystorePropertiesFile.exists()) {
     }
 }
 
+// 16 KB page-size fix. shared_preferences_android pins androidx.datastore 1.2.0,
+// whose libdatastore_shared_counter.so is linked with a RELRO segment that does
+// not end on a 16 KB boundary, so Play flags it as a crash risk on 16 KB
+// devices. DataStore 1.3.0 ships the .so built with NDK r27, aligned to 16 KB.
+// This overrides the plugin's transitive pin without forking it. Verify the
+// rebuilt bundle with `readelf -l` (segments must be p_align 0x4000) before an
+// upload, since the version alone is not an official guarantee.
+configurations.all {
+    resolutionStrategy {
+        force(
+            "androidx.datastore:datastore:1.3.0",
+            "androidx.datastore:datastore-preferences:1.3.0",
+            "androidx.datastore:datastore-core:1.3.0",
+            "androidx.datastore:datastore-core-android:1.3.0",
+        )
+    }
+}
+
 flutter {
     source = "../.."
 }
