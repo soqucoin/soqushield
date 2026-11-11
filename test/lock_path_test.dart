@@ -212,6 +212,47 @@ void main() {
       expect(auth.locks, 1);
     });
 
+    test('a prompt dropped before it answers lowers its guard at the drop, '
+        'so a later departure still locks', () async {
+      // A credential request can be dropped by a tap to unlock and never
+      // answer. Its guard comes down at the drop; waiting on the result
+      // would leave the depth above zero for the rest of the process.
+      final dropped = session.raiseSystemUi();
+      dropped.release();
+
+      // The fresh prompt is raised and does answer.
+      final fresh = Completer<bool>();
+      final run = session.whileSystemUi(() => fresh.future);
+      fresh.complete(true);
+      await run;
+
+      // Nothing is holding the guard up, so this is a real departure.
+      session.onAppBackground();
+      session.onAppForeground();
+      expect(auth.locks, 1);
+      expect(wallet.clears, 1);
+    });
+
+    test('a guard released twice lowers once, so a prompt still up keeps '
+        'its own', () async {
+      // The dropped prompt is released at the tap, and again if it ever
+      // answers. Were the second release to count, the depth would fall
+      // below the prompts actually up and the live one would lose cover.
+      final dropped = session.raiseSystemUi();
+      final live = session.raiseSystemUi();
+      dropped.release();
+      dropped.release();
+
+      session.onAppBackground();
+      session.onAppForeground();
+      expect(auth.locks, 0, reason: 'a prompt is still up');
+
+      live.release();
+      session.onAppBackground();
+      session.onAppForeground();
+      expect(auth.locks, 1);
+    });
+
     test('a send in progress is not interrupted by a lock', () {
       session.pauseForTransaction();
       session.onAppBackground();
@@ -443,6 +484,79 @@ void main() {
     }
     expect(find.byType(LockPilotScreen), findsNothing);
     await t.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('a prompt dropped by a tap to unlock does not hold the '
+      'system-UI guard up for the rest of the run', (t) async {
+    // The dropped prompt never answers, so its own release never ran. The
+    // depth stayed at one, every later departure read as the app's own
+    // system UI, and neither the key clear nor the lock happened again.
+    t.view.physicalSize = const Size(800, 1600);
+    t.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      t.view.resetPhysicalSize();
+      t.view.resetDevicePixelRatio();
+    });
+    final credential = _PendingAuthService();
+    final auth = _RecordingAuth();
+    router.go('/splash');
+    await t.pumpWidget(ProviderScope(
+      overrides: [
+        authProvider.overrideWith(() => auth),
+        authServiceProvider.overrideWithValue(credential),
+        walletProvider.overrideWith(() => MockWalletNotifier(_wallet())),
+        networkStatsProvider.overrideWith((ref) => const AsyncData(
+            NetworkStats(blocks: 1234, peers: 8, reachable: true))),
+        chainWeatherProvider.overrideWith((ref) =>
+            Stream.value(ChainWeather.unreachable(DateTime(2026, 10, 6)))),
+      ],
+      child: const SoquShieldApp(),
+    ));
+    await t.pump(const Duration(seconds: 3)); // past the splash
+    await t.pump();
+
+    // A departure and a return: the first lock, and the lock screen asks.
+    // ignore: invalid_use_of_protected_member
+    t.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    // ignore: invalid_use_of_protected_member
+    t.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 500));
+    expect(auth.locks, 1);
+    expect(credential.prompts, 1);
+
+    // Four seconds without an answer: a tap drops that prompt and asks
+    // again. The dropped one is never answered, here or later.
+    await t.pump(const Duration(seconds: 4));
+    await t.pump();
+    await t.tap(find.byKey(const Key('lock-retry')));
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 100));
+    expect(credential.prompts, 2);
+
+    // The fresh prompt succeeds: the wallet unlocks and the route leaves.
+    credential.pending[1].complete(AuthOutcome.success);
+    await t.pump();
+    for (var i = 0; i < 4; i++) {
+      await t.pump(const Duration(milliseconds: 300));
+    }
+    expect(find.byType(LockPilotScreen), findsNothing);
+    expect(credential.pending[0].isCompleted, isFalse,
+        reason: 'the dropped prompt stays unresolved, as it may forever');
+
+    // The next departure is a real one and must lock again.
+    // ignore: invalid_use_of_protected_member
+    t.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    // ignore: invalid_use_of_protected_member
+    t.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 500));
+    expect(auth.locks, 2,
+        reason: 'the dropped prompt held the system-UI guard up, so this '
+            'departure counted as the app\'s own system UI');
+
+    await t.pumpWidget(const SizedBox.shrink());
+    await t.pump(const Duration(minutes: 6));
   });
 
   testWidgets('a tap to unlock while the availability check is still in '
