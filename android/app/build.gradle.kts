@@ -87,6 +87,28 @@ if (!keystorePropertiesFile.exists()) {
     }
 }
 
+// 16 KB page-size fix. shared_preferences_android pins androidx.datastore 1.2.0,
+// whose libdatastore_shared_counter.so ends its GNU_RELRO segment at 0xd000 on
+// arm64-v8a and on x86_64. That is not a 16 KB boundary, so Play flags it as a
+// crash risk on 16 KB devices. DataStore 1.3.0 ends RELRO at 0xc000 on both.
+// This overrides the plugin's transitive pin without forking it.
+//
+// Before an upload, read the .so out of the rebuilt bundle and check it with
+// `readelf -l`: for each 64-bit ABI, GNU_RELRO's p_vaddr + p_memsz must be a
+// multiple of 0x4000. Do not check LOAD p_align instead. It is 0x4000 in 1.2.0
+// as well, so it accepts the broken library. The version pin is not an
+// official guarantee, so measure the binary that is about to ship.
+configurations.all {
+    resolutionStrategy {
+        force(
+            "androidx.datastore:datastore:1.3.0",
+            "androidx.datastore:datastore-preferences:1.3.0",
+            "androidx.datastore:datastore-core:1.3.0",
+            "androidx.datastore:datastore-core-android:1.3.0",
+        )
+    }
+}
+
 flutter {
     source = "../.."
 }
