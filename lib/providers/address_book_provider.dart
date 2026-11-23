@@ -63,6 +63,10 @@ class AddressBookNotifier extends Notifier<AddressBook> {
   /// can put entries into memory after a wipe.
   int _generation = 0;
 
+  /// Moved on by every read. Only the latest read may publish: an older one
+  /// that lands after it carries a list from before a later change.
+  int _read = 0;
+
   @override
   AddressBook build() {
     _ready = Future.microtask(_load);
@@ -71,8 +75,9 @@ class AddressBookNotifier extends Notifier<AddressBook> {
 
   Future<void> _load() async {
     final generation = _generation;
+    final read = ++_read;
     final entries = await _service.list();
-    if (!ref.mounted || generation != _generation) return;
+    if (!ref.mounted || generation != _generation || read != _read) return;
     state = AddressBook(entries: entries, loaded: true);
   }
 

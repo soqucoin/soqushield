@@ -7,9 +7,11 @@
 // amount or label. A code the parser refuses leaves its reason on the sheet
 // and the camera keeps looking; the first accepted address closes the sheet.
 // The camera stops when the app leaves the foreground and starts again when
-// it returns (the scanner widget's own lifecycle handling), and the sheet is a
-// pageless route under the screen that raised it, so a lock that routes away
-// takes the sheet down with that screen.
+// it returns. The sheet does this itself: the scanner widget leaves lifecycle
+// to whoever passes it a controller. The sheet is a pageless route under the
+// screen that raised it, so a lock that routes away takes the sheet down with
+// that screen. On a short screen the sheet scrolls rather than clipping its
+// lower lines.
 //
 // On the web the send screen offers no scanner: the web decoder is fetched
 // from a content network at run time, which this app does not do.
@@ -69,7 +71,13 @@ class ScanAddressSheet extends StatefulWidget {
   @visibleForTesting
   final ScanCameraBuilder? camera;
 
-  const ScanAddressSheet({super.key, required this.network, this.camera});
+  /// The scanner's controller, replaceable so a test can watch the sheet
+  /// start and stop it. The sheet disposes only a controller it made.
+  @visibleForTesting
+  final MobileScannerController? controller;
+
+  const ScanAddressSheet(
+      {super.key, required this.network, this.camera, this.controller});
 
   /// The line under the picture until a code is refused.
   static const hint = 'Point the camera at a Soqucoin address QR code. '
@@ -79,23 +87,51 @@ class ScanAddressSheet extends StatefulWidget {
   State<ScanAddressSheet> createState() => _ScanAddressSheetState();
 }
 
-class _ScanAddressSheetState extends State<ScanAddressSheet> {
+class _ScanAddressSheetState extends State<ScanAddressSheet>
+    with WidgetsBindingObserver {
   /// One format, and a code reported once until a different one is seen, so
   /// a refused code's reason stays put instead of flickering every frame.
-  late final MobileScannerController? _camera = widget.camera == null
-      ? MobileScannerController(
-          formats: const [BarcodeFormat.qrCode],
-          detectionSpeed: DetectionSpeed.noDuplicates,
-        )
-      : null;
+  late final MobileScannerController? _camera = widget.controller ??
+      (widget.camera == null
+          ? MobileScannerController(
+              formats: const [BarcodeFormat.qrCode],
+              detectionSpeed: DetectionSpeed.noDuplicates,
+            )
+          : null);
 
   String? _refusal;
   bool _done = false;
 
   @override
+  void initState() {
+    super.initState();
+    if (_camera != null) WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
   void dispose() {
-    unawaited(_camera?.dispose());
+    WidgetsBinding.instance.removeObserver(this);
+    if (widget.controller == null) unawaited(_camera?.dispose());
     super.dispose();
+  }
+
+  /// Stop the camera when the app goes inactive and start it again on
+  /// return, as the scanner widget does for a controller it owns. Without
+  /// the permission nothing is started, so a resume never asks for it again.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final camera = _camera;
+    if (camera == null || _done || !camera.value.hasCameraPermission) return;
+    switch (state) {
+      case AppLifecycleState.resumed:
+        unawaited(camera.start());
+      case AppLifecycleState.inactive:
+        unawaited(camera.stop());
+      case AppLifecycleState.detached:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.paused:
+        return;
+    }
   }
 
   /// One code's text, from the camera or from a test. The first accepted
@@ -133,22 +169,25 @@ class _ScanAddressSheetState extends State<ScanAddressSheet> {
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
     // The picture is square, as wide as the sheet allows and never more than
-    // half the screen tall, so the lines under it stay on a short phone.
+    // half the screen tall; where the lines under it still do not fit (a
+    // short phone in landscape), the sheet scrolls.
     final side = math.min(size.width - 44, size.height * 0.5);
     return SafeArea(
       top: false,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _top(context),
-          const SizedBox(height: 10),
-          SizedBox(width: side, height: side, child: _picture()),
-          const SizedBox(height: 20),
-          _line(),
-          const SizedBox(height: 14),
-          SizedBox(height: 36, child: Center(child: _torch())),
-          const SizedBox(height: 18),
-        ],
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _top(context),
+            const SizedBox(height: 10),
+            SizedBox(width: side, height: side, child: _picture()),
+            const SizedBox(height: 20),
+            _line(),
+            const SizedBox(height: 14),
+            SizedBox(height: 36, child: Center(child: _torch())),
+            const SizedBox(height: 18),
+          ],
+        ),
       ),
     );
   }

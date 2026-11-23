@@ -169,21 +169,23 @@ class _AddressEntryDialogState extends ConsumerState<AddressEntryDialog> {
             maxLines: 2,
           ),
           const SizedBox(height: 10),
-          Row(
+          // A Wrap, so the chips take a second line on a narrow screen or
+          // at large text instead of running off the panel.
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
             children: [
               InstrumentActionChip(
                   key: const Key('entry-paste'),
                   label: 'Paste',
                   icon: Icons.content_paste_rounded,
                   onTap: _paste),
-              if (!kIsWeb) ...[
-                const SizedBox(width: 8),
+              if (!kIsWeb)
                 InstrumentActionChip(
                     key: const Key('entry-scan'),
                     label: 'Scan',
                     icon: Icons.qr_code_scanner_rounded,
                     onTap: _scan),
-              ],
             ],
           ),
         ],

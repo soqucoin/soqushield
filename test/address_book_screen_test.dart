@@ -18,6 +18,7 @@ import 'package:soqushield/providers/auth_provider.dart';
 import 'package:soqushield/providers/session_provider.dart';
 import 'package:soqushield/providers/wallet_provider.dart';
 import 'package:soqushield/screens/address_book/address_book_screen.dart';
+import 'package:soqushield/screens/address_book/address_entry_dialog.dart';
 import 'package:soqushield/screens/send/address_book_picker.dart';
 import 'package:soqushield/screens/send/scan_address_sheet.dart';
 import 'package:soqushield/screens/send/send_pilot_screen.dart';
@@ -171,6 +172,34 @@ void main() {
       expect(find.text('ON MAINNET'), findsOneWidget);
       expect(_stored().single['address'], _mainnet);
       expect(find.text('Alice saved'), findsOneWidget);
+    });
+
+    testWidgets('the dialog fits a short phone with the keyboard open, at '
+        '130 percent text and with a refusal shown', (tester) async {
+      tester.view.physicalSize = const Size(320, 568);
+      tester.view.devicePixelRatio = 1;
+      tester.view.viewInsets = const FakeViewPadding(bottom: 260);
+      tester.platformDispatcher.textScaleFactorTestValue = 1.3;
+      addTearDown(tester.view.reset);
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+
+      await tester.pumpWidget(_scoped(Builder(
+          builder: (context) => TextButton(
+              onPressed: () => showAddressEntryDialog(context),
+              child: const Text('open')))));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('entry-name')), 'Alice');
+      await tester.enterText(find.byKey(const Key('entry-address')),
+          '${_mainnet.substring(0, _mainnet.length - 1)}m');
+      await tester.tap(find.byKey(const ValueKey('dialog confirm')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('entry-refusal')), findsOneWidget);
+      expect(tester.takeException(), isNull,
+          reason: 'the panel scrolls instead of overflowing');
+      await tester.ensureVisible(find.byKey(const Key('entry-refusal')));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('renames from the row, keeping the address', (tester) async {

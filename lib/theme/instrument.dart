@@ -515,7 +515,8 @@ class InstrumentActionChip extends StatelessWidget {
 }
 
 /// A dialog in the instrument language: square corners, a raised panel, an
-/// eyebrow for its title.
+/// eyebrow for its title. Its content scrolls, so a short screen with the
+/// keyboard open or large text never pushes a field out of reach.
 class InstrumentPanel extends StatelessWidget {
   const InstrumentPanel({
     super.key,
@@ -531,6 +532,7 @@ class InstrumentPanel extends StatelessWidget {
   Widget build(BuildContext context) => AlertDialog(
         backgroundColor: Instrument.void2,
         shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+        scrollable: true,
         title: Text(title, style: Instrument.eyebrow(size: 10)),
         content: Column(
           mainAxisSize: MainAxisSize.min,

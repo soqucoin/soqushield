@@ -360,5 +360,55 @@ void main() {
           reason: 'the read that began before the reset is dropped');
       expect(secureStore.containsKey(_key), isFalse);
     });
+
+    test('an older read that lands after a newer one cannot put back a row '
+        'the newer read no longer holds', () async {
+      final service = _HeldReads();
+      final container = ProviderContainer(overrides: [
+        addressBookServiceProvider.overrideWithValue(service),
+      ]);
+      addTearDown(container.dispose);
+      container.read(addressBookProvider);
+      await _settle();
+      service.answer(0, [_entry('a', 'Alice', _mainnet)]);
+      await _settle();
+      final notifier = container.read(addressBookProvider.notifier);
+
+      // Two reads in flight: the first saw Alice, the second saw her removed.
+      final first = notifier.reload();
+      await _settle();
+      final second = notifier.reload();
+      await _settle();
+      expect(service.pending, 2);
+      service.answer(2, const []);
+      await second;
+      expect(container.read(addressBookProvider).entries, isEmpty);
+
+      service.answer(1, [_entry('a', 'Alice', _mainnet)]);
+      await first;
+      await _settle();
+      expect(container.read(addressBookProvider).entries, isEmpty,
+          reason: 'the superseded read is dropped when it lands');
+    });
   });
+}
+
+AddressBookEntry _entry(String id, String name, String address) =>
+    AddressBookEntry.fromJson(_row(id, name, address))!;
+
+/// A service whose reads wait until the test answers them, in any order.
+class _HeldReads extends AddressBookService {
+  final List<Completer<List<AddressBookEntry>>> _reads = [];
+
+  int get pending => _reads.where((c) => !c.isCompleted).length;
+
+  void answer(int index, List<AddressBookEntry> entries) =>
+      _reads[index].complete(entries);
+
+  @override
+  Future<List<AddressBookEntry>> list() {
+    final read = Completer<List<AddressBookEntry>>();
+    _reads.add(read);
+    return read.future;
+  }
 }

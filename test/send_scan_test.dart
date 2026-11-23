@@ -10,6 +10,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:soqushield/guide/guide_content.dart';
@@ -253,6 +254,73 @@ void main() {
     });
   });
 
+  group('the scan sheet on a device', () {
+    Future<void> openSheet(WidgetTester tester,
+        {MobileScannerController? controller}) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showModalBottomSheet<String>(
+                context: context,
+                isScrollControlled: true,
+                useSafeArea: true,
+                builder: (_) => ScanAddressSheet(
+                  network: SoqNetwork.mainnet,
+                  controller: controller,
+                  camera: (_, _) => const SizedBox.expand(),
+                ),
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('stops the camera when the app goes inactive and starts it '
+        'on return', (tester) async {
+      final camera = _RecordingCamera(permitted: true);
+      await openSheet(tester, controller: camera);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      expect(camera.calls, ['stop', 'start']);
+
+      await tester.tap(find.byKey(const Key('scan-close')));
+      await tester.pumpAndSettle();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      expect(camera.calls, ['stop', 'start'],
+          reason: 'a closed sheet no longer drives the camera');
+    });
+
+    testWidgets('without the camera permission a resume starts nothing',
+        (tester) async {
+      final camera = _RecordingCamera(permitted: false);
+      await openSheet(tester, controller: camera);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      expect(camera.calls, isEmpty);
+    });
+
+    testWidgets('fits a short phone in landscape, scrolling to its lower '
+        'lines', (tester) async {
+      tester.view.physicalSize = const Size(667, 375);
+      tester.view.devicePixelRatio = 1;
+      tester.view.padding = const FakeViewPadding(left: 44, right: 44, bottom: 21);
+      addTearDown(tester.view.reset);
+      await openSheet(tester);
+      expect(tester.takeException(), isNull,
+          reason: 'the sheet scrolls instead of overflowing');
+      await tester.ensureVisible(find.byKey(const Key('scan-line')));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const Key('scan-line')).hitTestable(), findsOneWidget);
+    });
+  });
+
   group('the camera is declared with the dependency', () {
     test('pubspec declares the scanner', () {
       expect(
@@ -291,4 +359,24 @@ void main() {
           isTrue);
     });
   });
+}
+
+/// A controller that records what the sheet asks of it and never touches a
+/// camera.
+class _RecordingCamera extends MobileScannerController {
+  final calls = <String>[];
+
+  _RecordingCamera({required bool permitted}) : super(autoStart: false) {
+    value = const MobileScannerState.uninitialized()
+        .copyWith(isInitialized: permitted);
+  }
+
+  @override
+  Future<void> start(
+      {CameraFacing? cameraDirection, CameraLensType? cameraLensType}) async {
+    calls.add('start');
+  }
+
+  @override
+  Future<void> stop() async => calls.add('stop');
 }
