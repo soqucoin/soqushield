@@ -340,6 +340,7 @@ const _liteRoutes = {
   '/network',
   '/receive',
   '/wallets',
+  '/address-book',
   '/settings',
   '/guide',
   '/guide/:id',
@@ -710,7 +711,7 @@ void main() {
       AppShell.scaffoldKey.currentState!.openDrawer();
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
-      for (final kept in ['Help', 'Settings']) {
+      for (final kept in ['Address book', 'Help', 'Settings']) {
         expect(find.text(kept), findsOneWidget, reason: '$kept must stay');
       }
       // The Network tab replaces the drawer's observatory entry; the rest stay gone.

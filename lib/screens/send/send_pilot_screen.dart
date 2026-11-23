@@ -16,7 +16,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'address_book_picker.dart';
 import 'scan_address_sheet.dart';
+import '../address_book/address_entry_dialog.dart';
+import '../../providers/address_book_provider.dart';
 import '../../theme/instrument.dart';
 import '../../theme/figures.dart';
 import '../../theme/fmt.dart';
@@ -71,6 +74,10 @@ class _SendPilotScreenState extends ConsumerState<SendPilotScreen>
 
   String _txHash = '';
   String _errorMessage = '';
+
+  /// The recipient the broadcast transaction carried, for the SENT screen's
+  /// offer to save it. Set beside the amount, from the same checked string.
+  String _sentTo = '';
 
   // Dynamic fee estimation from RPC
   double _estimatedFee = 0.005; // Fallback: ~4kB Dilithium TX at minrelaytxfee
@@ -244,6 +251,7 @@ class _SendPilotScreenState extends ConsumerState<SendPilotScreen>
 
       if (!mounted) return;
       _txHash = txid;
+      _sentTo = recipient;
       pulse.stop();
       setState(() => _phase = 2);
       HapticFeedback.heavyImpact();
@@ -439,9 +447,15 @@ class _SendPilotScreenState extends ConsumerState<SendPilotScreen>
             formatters: [
               FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9]'))
             ],
-            // The camera reads the address. Not on the web, where the
-            // decoder would be fetched from a content network at run time.
-            trailing: kIsWeb ? null : _scanButton(),
+            // A saved address, or the camera. No scanner on the web, where
+            // the decoder would be fetched from a content network.
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _bookButton(),
+                if (!kIsWeb) _scanButton(),
+              ],
+            ),
           ),
           const SizedBox(height: 12),
           _feeLine(ticker),
@@ -610,6 +624,7 @@ class _SendPilotScreenState extends ConsumerState<SendPilotScreen>
                           fontFamily: kMono,
                           letterSpacing: 0.4)),
                 ),
+                _saveRecipientChip(),
                 const SizedBox(height: 30),
                 SizedBox(
                   width: 180,
@@ -683,11 +698,30 @@ class _SendPilotScreenState extends ConsumerState<SendPilotScreen>
         ),
       );
 
-  // ── the scanner ──
+  // ── the address book and the scanner ──
 
-  /// The scan icon in the recipient field. The address the camera reads
-  /// lands in the field as if typed, and goes through the same checks at
-  /// Send: the field is the one place a recipient comes from.
+  /// The address book icon in the recipient field: a saved address on this
+  /// network lands in the field as if typed. Like the camera's, it goes
+  /// through the same checks at Send: the field is the one place a
+  /// recipient comes from.
+  Widget _bookButton() => IconButton(
+        key: const Key('send-book'),
+        tooltip: 'Pick a saved address',
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+        icon: const Icon(Icons.contacts_outlined,
+            size: 18, color: Instrument.label),
+        onPressed: _inFlight ? null : _pickRecipient,
+      );
+
+  Future<void> _pickRecipient() async {
+    final address = await showAddressBookPicker(
+        context, ref.read(walletProvider).network);
+    if (!mounted || address == null) return;
+    _setRecipient(address);
+  }
+
+  /// The scan icon in the recipient field.
   Widget _scanButton() => IconButton(
         key: const Key('send-scan'),
         tooltip: 'Scan a QR code',
@@ -702,12 +736,39 @@ class _SendPilotScreenState extends ConsumerState<SendPilotScreen>
     final scan = ref.read(scanAddressProvider);
     final address = await scan(context, ref.read(walletProvider).network);
     if (!mounted || address == null) return;
+    _setRecipient(address);
+  }
+
+  void _setRecipient(String address) {
     setState(() {
       _recipientCtrl.text = address;
       _recipientCtrl.selection =
           TextSelection.collapsed(offset: address.length);
     });
     HapticFeedback.selectionClick();
+  }
+
+  /// Offered on the SENT screen for a recipient the book does not hold yet.
+  /// The address is the one the transaction carried.
+  Widget _saveRecipientChip() {
+    final book = ref.watch(addressBookProvider);
+    if (!book.loaded || _sentTo.isEmpty || book.byAddress(_sentTo) != null) {
+      return const SizedBox.shrink();
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 18),
+      child: InstrumentActionChip(
+        key: const Key('send-save-recipient'),
+        label: 'Save address',
+        icon: Icons.bookmark_add_outlined,
+        onTap: () async {
+          final entry =
+              await showAddressEntryDialog(context, initialAddress: _sentTo);
+          if (!mounted || entry == null) return;
+          _showError('${entry.name} saved');
+        },
+      ),
+    );
   }
 
   // ── shared bits ──

@@ -13,6 +13,7 @@ import 'screens/activity/activity_pilot_screen.dart';
 import 'screens/network/network_screen.dart';
 import 'screens/settings/settings_pilot_screen.dart';
 import 'screens/wallets/wallets_pilot_screen.dart';
+import 'screens/address_book/address_book_screen.dart';
 import 'screens/receive/receive_pilot_screen.dart';
 import 'screens/send/send_pilot_screen.dart';
 import 'screens/guide/guide_screen.dart';
@@ -24,8 +25,8 @@ final _shellNavigatorKey = GlobalKey<NavigatorState>();
 
 /// The lite wallet's routes: onboarding and lock outside the shell, the seed
 /// screens full-screen, the wallet shell (Wallet, Send, Activity, Network
-/// under one tab bar), and the pushed screens (Receive, Settings, the Field
-/// Manual).
+/// under one tab bar), and the pushed screens (Receive, Wallets, the address
+/// book, Settings, the Field Manual).
 final router = GoRouter(
   navigatorKey: _rootNavigatorKey,
   initialLocation: '/splash',
@@ -100,6 +101,10 @@ final router = GoRouter(
     GoRoute(
       path: '/wallets',
       builder: (context, state) => _mobileWrap(const WalletsPilotScreen()),
+    ),
+    GoRoute(
+      path: '/address-book',
+      builder: (context, state) => _mobileWrap(const AddressBookScreen()),
     ),
     GoRoute(
       path: '/settings',

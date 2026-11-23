@@ -44,8 +44,10 @@ class AddressScan {
   /// be scanned by a wallet must not get to put its own words on the screen.
   static const notAnAddress = 'That code is not a Soqucoin address';
 
-  /// Read [raw], the text of a scanned code, as an address on [network].
-  static AddressScan parse(String raw, SoqNetwork network) {
+  /// Read [raw], the text of a scanned code, as an address on [network], or
+  /// on whichever network its prefix names when [network] is null: the send
+  /// screen names the wallet's network, the address book takes either.
+  static AddressScan parse(String raw, SoqNetwork? network) {
     var text = raw.trim();
     if (text.toLowerCase().startsWith(scheme)) {
       text = text.substring(scheme.length);
@@ -60,19 +62,16 @@ class AddressScan {
     // network it belongs to. The prefix alone is not enough: a code can put
     // one in front of its own words ("sq1call us now1qqqqqqq"), and the
     // validator, which reads the part before the LAST separator, would then
-    // read those words back as an unknown prefix.
-    final lower = text.toLowerCase();
-    final separator = lower.lastIndexOf('1');
-    final hrp = separator < 0 ? '' : lower.substring(0, separator);
-    if (!SoqNetwork.values.any((n) => n.hrp == hrp)) {
-      return const AddressScan._(error: notAnAddress);
-    }
+    // read those words back as an unknown prefix. SoqNetwork.ofAddress
+    // applies that rule.
+    final own = SoqNetwork.ofAddress(text);
+    if (own == null) return const AddressScan._(error: notAnAddress);
     // Bech32m allows an all-uppercase spelling, and a QR code's alphanumeric
     // mode encodes one in fewer modules; it is the same address, carried on
     // in the lowercase form. A mixed-case spelling is left as it is, for the
     // validator to refuse.
-    final candidate = text == text.toUpperCase() ? lower : text;
-    final refusal = TxBuilder.validateAddress(candidate, network);
+    final candidate = text == text.toUpperCase() ? text.toLowerCase() : text;
+    final refusal = TxBuilder.validateAddress(candidate, network ?? own);
     if (refusal != null) return AddressScan._(error: refusal);
     return AddressScan._(address: candidate);
   }

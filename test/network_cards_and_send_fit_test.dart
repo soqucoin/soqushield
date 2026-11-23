@@ -349,7 +349,8 @@ void main() {
           .expand((a) => a.sections)
           .map((s) => '${s.heading ?? ''} ${s.body ?? ''} ${s.steps.join(' ')} ${s.note ?? ''}')
           .join(' ');
-      for (final absent in ['Observatory', 'Lightning', 'swap', 'SOQ-TEC', 'address book', 'Phantom']) {
+      // The address book left this list when the app gained one.
+      for (final absent in ['Observatory', 'Lightning', 'swap', 'SOQ-TEC', 'Phantom']) {
         expect(text.contains(absent), isFalse, reason: '$absent is not in the lite app');
       }
     });

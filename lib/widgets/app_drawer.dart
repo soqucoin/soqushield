@@ -108,6 +108,14 @@ class AppDrawer extends ConsumerWidget {
 
               const InstrumentDivider(),
 
+              _DrawerItem(
+                icon: Icons.contacts_outlined,
+                label: 'Address book',
+                onTap: () {
+                  Navigator.pop(context);
+                  context.push('/address-book');
+                },
+              ),
               // Help = the in-app Field Manual; Discord lives inside it as the
               // "still stuck" escalation path, not the front door.
               _DrawerItem(

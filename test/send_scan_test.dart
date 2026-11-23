@@ -87,7 +87,7 @@ void main() {
     testWidgets('opens the scanner for the wallet\'s network from the icon '
         'in the address field, and the address it reads lands there',
         (tester) async {
-      final asked = <SoqNetwork>[];
+      final asked = <SoqNetwork?>[];
       await tester.pumpWidget(_scoped(const SendPilotScreen(), extra: [
         scanAddressProvider.overrideWithValue((context, network) async {
           asked.add(network);

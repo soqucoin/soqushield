@@ -20,6 +20,7 @@ import '../../theme/instrument.dart';
 import '../../theme/motion.dart';
 import '../../providers/auth_provider.dart';
 import '../../models/fiat_currency.dart';
+import '../../providers/address_book_provider.dart';
 import '../../providers/display_prefs_provider.dart';
 import '../../providers/session_provider.dart';
 import '../../providers/wallet_provider.dart';
@@ -376,7 +377,8 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
           ],
         ),
         content: Text(
-            'This permanently deletes your wallet from this device.\n\n'
+            'This permanently deletes your wallet and your address book '
+            'from this device.\n\n'
             'If you have not backed up your 24-word recovery phrase, your funds '
             'will be PERMANENTLY LOST. This cannot be undone.',
             style: TextStyle(
@@ -405,6 +407,8 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
               // inherit this one's permission. Its stored key goes with
               // the wipe below.
               ref.read(displayPrefsProvider.notifier).resetToDefaults();
+              // The book in memory; its stored key goes with the wipe below.
+              ref.read(addressBookProvider.notifier).resetToDefaults();
               await ref.read(walletProvider.notifier).wipeWallet();
               final authService = ref.read(authServiceProvider);
               await authService.clearAccount();

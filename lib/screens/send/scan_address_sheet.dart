@@ -31,9 +31,9 @@ import '../../theme/motion.dart';
 import '../shell.dart';
 
 /// Opens a scanner over [context] and completes with an address accepted for
-/// [network], or null when none was read.
+/// [network] (either network when null), or null when none was read.
 typedef ScanAddress = Future<String?> Function(
-    BuildContext context, SoqNetwork network);
+    BuildContext context, SoqNetwork? network);
 
 /// How the send screen opens the scanner. The default raises the camera
 /// sheet; a test substitutes a function that answers at once.
@@ -41,7 +41,7 @@ final scanAddressProvider = Provider<ScanAddress>((_) => showScanAddressSheet);
 
 /// The camera sheet, on the root navigator so it covers the shell's tab bar.
 Future<String?> showScanAddressSheet(
-        BuildContext context, SoqNetwork network) =>
+        BuildContext context, SoqNetwork? network) =>
     showModalBottomSheet<String>(
       context: context,
       useRootNavigator: true,
@@ -62,7 +62,8 @@ typedef ScanCameraBuilder = Widget Function(
     BuildContext context, void Function(String raw) onRaw);
 
 class ScanAddressSheet extends StatefulWidget {
-  final SoqNetwork network;
+  /// The network an address must belong to; null takes either.
+  final SoqNetwork? network;
 
   /// The camera, replaceable: a widget test cannot start one.
   @visibleForTesting
