@@ -234,7 +234,7 @@ List<GuideCategory> get guideCategories => [
           steps: [
             'From the Wallet tab, tap SEND.',
             'Enter the amount.',
-            'Paste the recipient\'s address. The app checks that it belongs to the network you are on.',
+            'Paste the recipient\'s address, pick a saved one with the book icon beside the address field, or tap the scan icon and point the camera at their QR code. The app checks that the address belongs to the network you are on.',
             'Review the FEE line. The fee pays the network, not us.',
             'Tap SEND SOQ (SEND TSOQ on Stagenet) and confirm with Face ID or your passcode.',
           ],
@@ -252,6 +252,30 @@ List<GuideCategory> get guideCategories => [
         GuideSection(
           note:
               'On Mainnet, sending needs the network: until the app has read the chain, the balance shown is the last one it read (0 on a new wallet) and the app refuses to send, by design.',
+        ),
+      ],
+    ),
+    GuideArticle(
+      id: 'address-book',
+      title: 'Address book',
+      tagline: 'Save the addresses you send to.',
+      icon: Icons.contacts_outlined,
+      sections: [
+        GuideSection(
+          steps: [
+            'Open the address book from the More panel.',
+            'Tap SAVE AN ADDRESS, give it a name, and paste or scan the address. The app checks the address before it is saved.',
+            'On SEND, tap the book icon beside the address field to pick a saved address on the network you are on.',
+            'After a send, the SENT screen offers to save the address you just paid.',
+          ],
+        ),
+        GuideSection(
+          body:
+              'The book is kept on this device only. It is not part of the recovery phrase or the encrypted backup, so a new phone starts with an empty one, and wiping the wallet wipes the book with it.',
+        ),
+        GuideSection(
+          note:
+              'A saved name is a label you chose. Check the first and last characters of the address before confirming a send, whatever name it carries.',
         ),
       ],
     ),

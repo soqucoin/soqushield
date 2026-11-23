@@ -9,6 +9,8 @@ This repository is the source of the app on Google Play and the App Store. The l
 - Create a wallet, or restore one from its 24 words
 - Back it up: the recovery phrase, and an encrypted `.soqbackup` file
 - Show the address as text or as a QR code
+- Fill in a recipient by scanning the QR code of their address
+- Keep an address book of the addresses you send to, on the device
 - Send and receive SOQ with post-quantum signatures
 - Optionally show what a balance is worth, in any of 22 currencies
 - Activity: the wallet's history, rebuilt from the chain after a restore

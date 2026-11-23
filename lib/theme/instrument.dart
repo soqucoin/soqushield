@@ -514,6 +514,61 @@ class InstrumentActionChip extends StatelessWidget {
       );
 }
 
+/// A dialog in the instrument language: square corners, a raised panel, an
+/// eyebrow for its title. Its content scrolls, so a short screen with the
+/// keyboard open or large text never pushes a field out of reach.
+class InstrumentPanel extends StatelessWidget {
+  const InstrumentPanel({
+    super.key,
+    required this.title,
+    required this.actions,
+    required this.children,
+  });
+  final String title;
+  final List<Widget> children;
+  final List<Widget> actions;
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        backgroundColor: Instrument.void2,
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+        scrollable: true,
+        title: Text(title, style: Instrument.eyebrow(size: 10)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: children,
+        ),
+        actions: actions,
+      );
+}
+
+/// A dialog button. Keyed `dialog confirm` or `dialog cancel` rather than
+/// found by its words, which change from one dialog to the next. A null
+/// [onPressed] is the busy state: dimmed, and not pressable.
+class InstrumentDialogAction extends StatelessWidget {
+  const InstrumentDialogAction({
+    super.key,
+    required this.label,
+    required this.onPressed,
+    this.primary = false,
+  });
+  final String label;
+  final VoidCallback? onPressed;
+  final bool primary;
+
+  @override
+  Widget build(BuildContext context) => TextButton(
+        key: ValueKey('dialog ${primary ? 'confirm' : 'cancel'}'),
+        onPressed: onPressed,
+        child: Text(label,
+            style: Instrument.eyebrow(size: 10).copyWith(
+                color: primary && onPressed != null
+                    ? Instrument.signal
+                    : Instrument.faint)),
+      );
+}
+
 /// The top bar of a pushed or onboarding screen: the back arrow and the
 /// screen's eyebrow, at the geometry Receive and Settings use. [onBack] null
 /// hides the arrow and keeps the eyebrow on the content inset.

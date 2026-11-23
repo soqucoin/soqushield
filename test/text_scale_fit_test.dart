@@ -7,6 +7,7 @@
 // in main.dart.
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -23,6 +24,7 @@ import 'package:soqushield/providers/wallet_provider.dart';
 import 'package:soqushield/providers/weather_provider.dart';
 import 'package:soqushield/screens/activity/activity_detail_sheet.dart';
 import 'package:soqushield/screens/activity/activity_pilot_screen.dart';
+import 'package:soqushield/screens/address_book/address_book_screen.dart';
 import 'package:soqushield/screens/auth/create_account_pilot_screen.dart';
 import 'package:soqushield/screens/auth/lock_pilot_screen.dart';
 import 'package:soqushield/screens/auth/risk_disclosure_screen.dart';
@@ -35,6 +37,7 @@ import 'package:soqushield/screens/network/network_screen.dart';
 import 'package:soqushield/screens/receive/receive_pilot_screen.dart';
 import 'package:soqushield/screens/send/send_pilot_screen.dart';
 import 'package:soqushield/screens/settings/settings_pilot_screen.dart';
+import 'package:soqushield/services/address_book_service.dart';
 import 'package:soqushield/services/weather_service.dart';
 import 'package:soqushield/widgets/seed_word_grid.dart';
 
@@ -120,6 +123,23 @@ void main() {
   setUp(() {
     installSecureStorageMock();
     SharedPreferences.setMockInitialValues({});
+    // The address book at its widest: the longest name a row takes, on
+    // both networks.
+    secureStore[AddressBookService.storageKey] = json.encode([
+      {
+        'id': 'a1',
+        'name': 'Wwwwwwwwww Wwwwwwwwww Wwwwwwwwww Wwwwwwww',
+        'address': _mainnetAddress,
+        'createdAt': '2026-10-14T00:00:00Z',
+      },
+      {
+        'id': 'a2',
+        'name': 'Stagenet practice',
+        'address':
+            'ssq1p3j6nd46xrh8vl8ac86x8sm4dlynv95ckpyn5y4d46kte8js05k2qvft6ee',
+        'createdAt': '2026-10-14T00:00:00Z',
+      },
+    ]);
   });
 
   final screens = <String, Widget Function()>{
@@ -133,6 +153,7 @@ void main() {
     'send': () => const SendPilotScreen(),
     'receive': () => const ReceivePilotScreen(),
     'settings': () => const SettingsPilotScreen(),
+    'address book': () => const AddressBookScreen(),
     'activity': () => const ActivityPilotScreen(),
     'network': () => const NetworkPilotScreen(),
     'field manual': () => const GuideScreen(),

@@ -25,6 +25,15 @@ const kSharedSecureStorage = FlutterSecureStorage(
   aOptions: AndroidOptions(encryptedSharedPreferences: true),
 );
 
+/// For what stays on this device: the Android options every instance uses
+/// (one file), and on iOS a keychain class that no backup carries to
+/// another phone. The address book is kept here.
+const kDeviceOnlySecureStorage = FlutterSecureStorage(
+  aOptions: AndroidOptions(encryptedSharedPreferences: true),
+  iOptions: IOSOptions(
+      accessibility: KeychainAccessibility.first_unlock_this_device),
+);
+
 /// Secure persistent storage for wallet secrets.
 ///
 /// Uses platform-native secure storage:
@@ -593,8 +602,18 @@ class SecureStorageService {
   /// which has that accessibility.
   Future<void> wipeWallet() async {
     await _storage.deleteAll();
-    for (final key in [...legacyDefaultKeys, ...sessionKeys, ...displayKeys]) {
+    for (final key in [
+      ...legacyDefaultKeys,
+      ...sessionKeys,
+      ...displayKeys,
+      ...addressBookKeys,
+    ]) {
       await kSharedSecureStorage.delete(key: key);
+    }
+    // The book is kept in the device-only class; on iOS a delete matches
+    // the class, so it goes through the instance that wrote it.
+    for (final key in addressBookKeys) {
+      await kDeviceOnlySecureStorage.delete(key: key);
     }
   }
 
@@ -619,6 +638,13 @@ class SecureStorageService {
     'soq_show_fiat_v1',
     'soq_fiat_currency_v1',
     'soq_allow_capture_v1',
+  ];
+
+  /// The address book, kept through the shared instance. A wipe removes it:
+  /// the next owner of the device must not inherit who this one paid; the
+  /// service's own list of its keys is pinned to this one by a test.
+  static const addressBookKeys = [
+    'soq_address_book_v1',
   ];
 
   /// Keys the 2.1 build wrote through a default storage instance: the social

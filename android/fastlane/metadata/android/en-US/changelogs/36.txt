@@ -1,0 +1,1 @@
+Two new ways to fill in a recipient. Scan the QR code of an address with the camera. The scan reads the address and nothing else. Keep an address book on the device. Save a payee under a name you choose, pick one on the Send screen, and save a recipient after a send. An address is checked before it enters the book. Wipe wallet clears the book.

@@ -60,6 +60,23 @@ enum SoqNetwork {
   /// Network-aware address prefix — stagenet uses 'ssq1', mainnet/testnet use 'sq1'.
   String get addressPrefix => this == SoqNetwork.stagenet ? 'ssq1' : 'sq1';
 
+  /// The network whose human-readable part [address] carries, in either
+  /// case: everything before the last separator. Null for a string that is
+  /// not shaped like an address of either network. The prefix alone is not
+  /// enough: a code can put one in front of its own words, and the
+  /// validator reads the part before the LAST separator as the network.
+  /// Whether the rest is an address is the validator's call.
+  static SoqNetwork? ofAddress(String address) {
+    final lower = address.trim().toLowerCase();
+    final separator = lower.lastIndexOf('1');
+    if (separator < 0) return null;
+    final hrp = lower.substring(0, separator);
+    for (final n in SoqNetwork.values) {
+      if (n.hrp == hrp) return n;
+    }
+    return null;
+  }
+
   /// Network-aware label for UI badges.
   String get networkLabel {
     switch (this) {

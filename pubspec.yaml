@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 2.6.1+35
+version: 2.7.0+36
 environment:
   sdk: ^3.11.0
 
@@ -45,6 +45,7 @@ dependencies:
   share_plus: ^10.1.4           # F11: Native share sheet for backup export
   path_provider: ^2.1.5         # F11: Temp directory for .soqbackup file
   flutter_secure_storage: ^9.2.4
+  mobile_scanner: ^7.5.0        # The send screen's QR scanner: the camera and an on-device decoder
 
   # Post-Quantum Wallet Engine — Native FFI (the node's FIPS 204 ML-DSA-44 C
   # sources, built by hook/build.dart)

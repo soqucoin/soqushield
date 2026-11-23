@@ -34,8 +34,9 @@ void main() {
           reason: '${f.path}: each construction carries the Android option, '
               'or uses kSharedSecureStorage');
     }
-    // The wallet's instance, the shared instance and the vault's.
-    expect(constructions, 3);
+    // The wallet's instance, the shared instance, the device-only instance
+    // the address book uses, and the vault's.
+    expect(constructions, 4);
   });
 
   test('the services outside the storage service use the shared instance', () {

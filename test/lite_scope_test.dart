@@ -340,6 +340,7 @@ const _liteRoutes = {
   '/network',
   '/receive',
   '/wallets',
+  '/address-book',
   '/settings',
   '/guide',
   '/guide/:id',
@@ -455,6 +456,9 @@ void main() {
   });
 
   group('receive', () {
+    // TODO(eltoo): this pin, the Receive QR and the send scanner's parser
+    // (lib/services/address_scan.dart) change together once eltoo channels
+    // land and a code carries more than the on-chain address.
     testWidgets('the QR encodes the bare address and the screen takes no input',
         (tester) async {
       await tester.pumpWidget(_scoped(_wallet(SoqNetwork.mainnet, _mainnetAddress), const MaterialApp(home: ReceivePilotScreen())));
@@ -707,7 +711,7 @@ void main() {
       AppShell.scaffoldKey.currentState!.openDrawer();
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
-      for (final kept in ['Help', 'Settings']) {
+      for (final kept in ['Address book', 'Help', 'Settings']) {
         expect(find.text(kept), findsOneWidget, reason: '$kept must stay');
       }
       // The Network tab replaces the drawer's observatory entry; the rest stay gone.
@@ -983,9 +987,9 @@ void main() {
 
   group('version', () {
     test('is the lite release', () {
-      expect(kAppVersion, 'v2.6.1');
-      expect(RegExp(r'^version:\s*2\.6\.1\+35\s*$', multiLine: true).hasMatch(_read('pubspec.yaml')),
-          isTrue, reason: 'pubspec version must be 2.6.1+35, the build that carries the 2.6.0 set (the multiwallet set, hide balances, the screen-capture setting and the company price route) and the point scene on the opening and setup screens; Info.plist carries ITSAppUsesNonExemptEncryption false, so the upload answers export compliance as it lands');
+      expect(kAppVersion, 'v2.7.0');
+      expect(RegExp(r'^version:\s*2\.7\.0\+36\s*$', multiLine: true).hasMatch(_read('pubspec.yaml')),
+          isTrue, reason: 'pubspec version must be 2.7.0+36, the build that carries the 2.6.1 set and the two new ways a recipient reaches the send field (the QR scan and the address book on the device); Info.plist carries ITSAppUsesNonExemptEncryption false, so the upload answers export compliance as it lands');
     });
   });
 }

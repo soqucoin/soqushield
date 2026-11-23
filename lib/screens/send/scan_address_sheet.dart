@@ -1,0 +1,314 @@
+// The send screen's scanner: a sheet with the camera in it that reads one
+// Soqucoin address out of a QR code and hands it back to the screen that
+// opened it, or nothing when the person backs out.
+//
+// What a code may carry is decided by AddressScan (lib/services/
+// address_scan.dart): an address, bare or behind the soqucoin: scheme, and no
+// amount or label. A code the parser refuses leaves its reason on the sheet
+// and the camera keeps looking; the first accepted address closes the sheet.
+// The camera stops when the app leaves the foreground and starts again when
+// it returns. The sheet does this itself: the scanner widget leaves lifecycle
+// to whoever passes it a controller. The sheet is a pageless route under the
+// screen that raised it, so a lock that routes away takes the sheet down with
+// that screen. On a short screen the sheet scrolls rather than clipping its
+// lower lines.
+//
+// On the web the send screen offers no scanner: the web decoder is fetched
+// from a content network at run time, which this app does not do.
+//
+// Copyright 2026 Soqucoin Labs Inc.
+
+import 'dart:async';
+import 'dart:math' as math;
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
+
+import '../../models/wallet_keys.dart';
+import '../../services/address_scan.dart';
+import '../../theme/instrument.dart';
+import '../../theme/motion.dart';
+import '../shell.dart';
+
+/// Opens a scanner over [context] and completes with an address accepted for
+/// [network] (either network when null), or null when none was read.
+typedef ScanAddress = Future<String?> Function(
+    BuildContext context, SoqNetwork? network);
+
+/// How the send screen opens the scanner. The default raises the camera
+/// sheet; a test substitutes a function that answers at once.
+final scanAddressProvider = Provider<ScanAddress>((_) => showScanAddressSheet);
+
+/// The camera sheet, on the root navigator so it covers the shell's tab bar.
+Future<String?> showScanAddressSheet(
+        BuildContext context, SoqNetwork? network) =>
+    showModalBottomSheet<String>(
+      context: context,
+      useRootNavigator: true,
+      isScrollControlled: true,
+      useSafeArea: true,
+      constraints: const BoxConstraints(maxWidth: kShellMaxWidth),
+      backgroundColor: Instrument.void0,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.zero,
+        side: BorderSide(color: Instrument.lineHi, width: 0.6),
+      ),
+      builder: (_) => ScanAddressSheet(network: network),
+    );
+
+/// What the sheet puts in the picture: by default the scanner widget over the
+/// camera; a test hands in a stand-in that calls [onRaw] with a code's text.
+typedef ScanCameraBuilder = Widget Function(
+    BuildContext context, void Function(String raw) onRaw);
+
+class ScanAddressSheet extends StatefulWidget {
+  /// The network an address must belong to; null takes either.
+  final SoqNetwork? network;
+
+  /// The camera, replaceable: a widget test cannot start one.
+  @visibleForTesting
+  final ScanCameraBuilder? camera;
+
+  /// The scanner's controller, replaceable so a test can watch the sheet
+  /// start and stop it. The sheet disposes only a controller it made.
+  @visibleForTesting
+  final MobileScannerController? controller;
+
+  const ScanAddressSheet(
+      {super.key, required this.network, this.camera, this.controller});
+
+  /// The line under the picture until a code is refused.
+  static const hint = 'Point the camera at a Soqucoin address QR code. '
+      'Nothing but the address is read.';
+
+  @override
+  State<ScanAddressSheet> createState() => _ScanAddressSheetState();
+}
+
+class _ScanAddressSheetState extends State<ScanAddressSheet>
+    with WidgetsBindingObserver {
+  /// One format, and a code reported once until a different one is seen, so
+  /// a refused code's reason stays put instead of flickering every frame.
+  late final MobileScannerController? _camera = widget.controller ??
+      (widget.camera == null
+          ? MobileScannerController(
+              formats: const [BarcodeFormat.qrCode],
+              detectionSpeed: DetectionSpeed.noDuplicates,
+            )
+          : null);
+
+  String? _refusal;
+  bool _done = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_camera != null) WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    if (widget.controller == null) unawaited(_camera?.dispose());
+    super.dispose();
+  }
+
+  /// Stop the camera when the app goes inactive and start it again on
+  /// return, as the scanner widget does for a controller it owns. Without
+  /// the permission nothing is started, so a resume never asks for it again.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final camera = _camera;
+    if (camera == null || _done || !camera.value.hasCameraPermission) return;
+    switch (state) {
+      case AppLifecycleState.resumed:
+        unawaited(camera.start());
+      case AppLifecycleState.inactive:
+        unawaited(camera.stop());
+      case AppLifecycleState.detached:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.paused:
+        return;
+    }
+  }
+
+  /// One code's text, from the camera or from a test. The first accepted
+  /// address closes the sheet; a refused code leaves its reason and the
+  /// camera keeps looking.
+  void _onRaw(String raw) {
+    if (_done || !mounted) return;
+    // A detection can land after the sheet is dismissed, while its route is
+    // still animating out. Nothing under the sheet may be popped in its
+    // place, so a sheet that is no longer the current route reads nothing.
+    final route = ModalRoute.of(context);
+    if (route == null || !route.isCurrent) {
+      _done = true;
+      return;
+    }
+    final scan = AddressScan.parse(raw, widget.network);
+    if (scan.accepted) {
+      _done = true;
+      HapticFeedback.mediumImpact();
+      Navigator.of(context).pop(scan.address);
+      return;
+    }
+    if (scan.error != _refusal) setState(() => _refusal = scan.error);
+  }
+
+  void _onDetect(BarcodeCapture capture) {
+    for (final code in capture.barcodes) {
+      if (_done) return;
+      final raw = code.rawValue;
+      if (raw != null) _onRaw(raw);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    // The picture is square, as wide as the sheet allows and never more than
+    // half the screen tall; where the lines under it still do not fit (a
+    // short phone in landscape), the sheet scrolls.
+    final side = math.min(size.width - 44, size.height * 0.5);
+    return SafeArea(
+      top: false,
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _top(context),
+            const SizedBox(height: 10),
+            SizedBox(width: side, height: side, child: _picture()),
+            const SizedBox(height: 20),
+            _line(),
+            const SizedBox(height: 14),
+            SizedBox(height: 36, child: Center(child: _torch())),
+            const SizedBox(height: 18),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _top(BuildContext context) => Padding(
+        padding: const EdgeInsets.fromLTRB(22, 14, 8, 0),
+        child: Row(
+          children: [
+            Expanded(
+                child: Text('SCAN ADDRESS', style: Instrument.eyebrow(size: 11))),
+            IconButton(
+              key: const Key('scan-close'),
+              tooltip: 'Close',
+              icon: const Icon(Icons.close_rounded,
+                  color: Instrument.label, size: 20),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+          ],
+        ),
+      );
+
+  Widget _picture() {
+    final camera = widget.camera;
+    final picture = camera != null
+        ? camera(context, _onRaw)
+        : MobileScanner(
+            controller: _camera,
+            onDetect: _onDetect,
+            placeholderBuilder: (_) => const ColoredBox(color: Instrument.void2),
+            errorBuilder: (_, error) => _CameraUnavailable(error.errorCode),
+          );
+    return Stack(
+      fit: StackFit.expand,
+      clipBehavior: Clip.none,
+      children: [
+        ClipRect(child: picture),
+        // The brackets Receive puts around its QR, here around the picture:
+        // drawn outside it, so nothing sits over the code the camera reads.
+        const IgnorePointer(child: CustomPaint(painter: _FramePainter())),
+      ],
+    );
+  }
+
+  Widget _line() {
+    final refusal = _refusal;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 22),
+      child: Text(
+        refusal ?? ScanAddressSheet.hint,
+        key: const Key('scan-line'),
+        textAlign: TextAlign.center,
+        style: TextStyle(
+            color: refusal == null ? Instrument.faint : Instrument.threat,
+            fontSize: 11.5,
+            height: 1.5),
+      ),
+    );
+  }
+
+  /// The light, while the camera runs and has one. Its slot is reserved
+  /// either way, so the sheet does not jump as the camera starts.
+  Widget _torch() {
+    final camera = _camera;
+    if (camera == null) return const SizedBox.shrink();
+    return ValueListenableBuilder<MobileScannerState>(
+      valueListenable: camera,
+      builder: (_, state, _) {
+        if (!state.isRunning ||
+            state.torchState == TorchState.unavailable) {
+          return const SizedBox.shrink();
+        }
+        final on = state.torchState == TorchState.on;
+        return InstrumentActionChip(
+          label: on ? 'Light off' : 'Light on',
+          icon: on ? Icons.flashlight_off_rounded : Icons.flashlight_on_rounded,
+          onTap: () => unawaited(camera.toggleTorch()),
+        );
+      },
+    );
+  }
+}
+
+/// The picture when there is no camera to show: the permission is off, the
+/// device has none, or it could not be started.
+class _CameraUnavailable extends StatelessWidget {
+  final MobileScannerErrorCode code;
+  const _CameraUnavailable(this.code);
+
+  @override
+  Widget build(BuildContext context) => ColoredBox(
+        color: Instrument.void2,
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Text(
+              switch (code) {
+                MobileScannerErrorCode.permissionDenied =>
+                  'Camera access is off. Allow it for SoquShield in your '
+                      'phone\'s settings, then open the scanner again.',
+                MobileScannerErrorCode.unsupported =>
+                  'This device has no camera the scanner can use.',
+                _ => 'The camera could not be started.',
+              },
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                  color: Instrument.label, fontSize: 12, height: 1.5),
+            ),
+          ),
+        ),
+      );
+}
+
+/// The resting frame of the Receive screen's lock-on, around the picture.
+class _FramePainter extends CustomPainter {
+  const _FramePainter();
+
+  @override
+  void paint(Canvas canvas, Size size) => paintBrackets(
+      canvas, Offset.zero & size, 8, 14, 0.7,
+      color: Instrument.signalDim);
+
+  @override
+  bool shouldRepaint(covariant _FramePainter old) => false;
+}

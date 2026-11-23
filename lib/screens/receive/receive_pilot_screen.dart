@@ -239,6 +239,12 @@ class _ReceivePilotScreenState extends ConsumerState<ReceivePilotScreen>
 
 /// The receive QR: light modules on a cold panel, a hairline bezel. [data] is
 /// the bare address, exactly what the Copy button copies.
+///
+/// TODO(eltoo): the payload will probably change once eltoo channels land.
+/// A code would then carry a channel payload beside, or instead of, the
+/// on-chain address, and this widget, the send scanner's parser
+/// (lib/services/address_scan.dart) and the payload pin in
+/// test/lite_scope_test.dart change together.
 class ReceiveQr extends StatelessWidget {
   final String data;
   final double size;
