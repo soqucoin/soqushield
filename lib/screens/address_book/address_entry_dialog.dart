@@ -70,6 +70,7 @@ class _AddressEntryDialogState extends ConsumerState<AddressEntryDialog> {
       _busy = true;
       _refusal = null;
     });
+    final route = ModalRoute.of(context);
     final book = ref.read(addressBookProvider.notifier);
     final rename = widget.rename;
     try {
@@ -78,6 +79,11 @@ class _AddressEntryDialogState extends ConsumerState<AddressEntryDialog> {
           : await book.add(name: _name.text, address: _address.text);
       if (!mounted) return;
       HapticFeedback.selectionClick();
+      // The dialog may have been dismissed while the write was in flight
+      // and still be animating out. Popping then would take the route
+      // under it. The entry is saved either way, and the book's state
+      // already shows it.
+      if (route == null || !route.isCurrent) return;
       Navigator.of(context).pop(entry);
     } on AddressBookRefusal catch (e) {
       if (!mounted) return;
@@ -96,6 +102,7 @@ class _AddressEntryDialogState extends ConsumerState<AddressEntryDialog> {
   }
 
   Future<void> _paste() async {
+    if (_busy) return;
     final data = await Clipboard.getData(Clipboard.kTextPlain);
     if (!mounted) return;
     final text = data?.text?.trim() ?? '';
@@ -112,6 +119,9 @@ class _AddressEntryDialogState extends ConsumerState<AddressEntryDialog> {
   /// The scanner, for either network: the book keeps both, and the entry's
   /// network is read off the address.
   Future<void> _scan() async {
+    // Not over a save in flight: the scanner's sheet would then sit above
+    // this dialog when the save came to pop it.
+    if (_busy) return;
     final scan = ref.read(scanAddressProvider);
     final address = await scan(context, null);
     if (!mounted || address == null) return;

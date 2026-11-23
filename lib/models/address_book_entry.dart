@@ -72,12 +72,19 @@ class AddressBookEntry {
     final id = raw['id'];
     final address = raw['address'];
     if (id is! String || id.isEmpty) return null;
-    if (address is! String || SoqNetwork.ofAddress(address) == null) return null;
+    if (address is! String) return null;
+    // The service writes an address lowercase. All uppercase is the same
+    // address and is read back lowercase; a mixed-case spelling is not an
+    // address at all (the validator refuses one), so a row carrying it was
+    // not written by the service and is dropped, not repaired.
+    final lower = address.toLowerCase();
+    if (address != lower && address != address.toUpperCase()) return null;
+    if (SoqNetwork.ofAddress(lower) == null) return null;
     return AddressBookEntry(
       id: id,
       name: (raw['name'] is String ? cleanName(raw['name'] as String) : null) ??
           fallbackName,
-      address: address.toLowerCase(),
+      address: lower,
       createdAt: raw['createdAt'] is String
           ? DateTime.tryParse(raw['createdAt'] as String) ?? DateTime(2026)
           : DateTime(2026),

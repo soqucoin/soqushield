@@ -260,11 +260,17 @@ class _AddressBookScreenState extends ConsumerState<AddressBookScreen> {
                 color: Instrument.faint, fontSize: 11, height: 1.5)),
       );
 
+  /// A row a keyboard reaches and activates, as it does the icons on it,
+  /// and a screen reader reads as a button. No ink: the press tone is the
+  /// raised panel, as on the buttons.
   Widget _rowFrame({required Widget child, VoidCallback? onTap, Key? key}) =>
-      GestureDetector(
+      InkWell(
         key: key,
         onTap: onTap,
-        behavior: HitTestBehavior.opaque,
+        splashFactory: NoSplash.splashFactory,
+        highlightColor: Instrument.void2,
+        focusColor: Instrument.void2,
+        hoverColor: Colors.transparent,
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 13),
           decoration: BoxDecoration(

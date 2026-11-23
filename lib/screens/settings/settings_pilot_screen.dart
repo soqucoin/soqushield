@@ -407,8 +407,10 @@ class _SettingsPilotScreenState extends ConsumerState<SettingsPilotScreen> {
               // inherit this one's permission. Its stored key goes with
               // the wipe below.
               ref.read(displayPrefsProvider.notifier).resetToDefaults();
-              // The book in memory; its stored key goes with the wipe below.
-              ref.read(addressBookProvider.notifier).resetToDefaults();
+              // The address book: its state at once, its stored list behind
+              // any write in flight. Awaited, so nothing read before the
+              // wipe can be written back after it.
+              await ref.read(addressBookProvider.notifier).resetToDefaults();
               await ref.read(walletProvider.notifier).wipeWallet();
               final authService = ref.read(authServiceProvider);
               await authService.clearAccount();

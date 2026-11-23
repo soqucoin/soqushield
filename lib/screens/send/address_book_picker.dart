@@ -87,11 +87,16 @@ class AddressBookPicker extends ConsumerWidget {
                 padding: const EdgeInsets.fromLTRB(22, 6, 22, 0),
                 physics: const BouncingScrollPhysics(),
                 children: [
+                  // A row a keyboard reaches and activates; no ink, the
+                  // press tone is the raised panel.
                   for (final e in entries)
-                    GestureDetector(
+                    InkWell(
                       key: ValueKey('pick ${e.id}'),
-                      behavior: HitTestBehavior.opaque,
                       onTap: () => Navigator.of(context).pop(e.address),
+                      splashFactory: NoSplash.splashFactory,
+                      highlightColor: Instrument.void2,
+                      focusColor: Instrument.void2,
+                      hoverColor: Colors.transparent,
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 13),
                         decoration: BoxDecoration(

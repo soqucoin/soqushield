@@ -6,6 +6,11 @@
 /// holds and never a guess at it. A refusal from the service passes through
 /// as an [AddressBookRefusal], for the screen to show as it is.
 ///
+/// A wipe empties the state at once, retires every read and every change
+/// begun before it, and deletes the stored book through the service's write
+/// queue, behind any write already in flight: nothing read before the wipe
+/// can land in memory or in storage after it.
+///
 /// Copyright 2026 Soqucoin Labs Inc.
 library;
 
@@ -53,6 +58,11 @@ class AddressBookNotifier extends Notifier<AddressBook> {
   /// finishes late can never overwrite a change made while it was pending.
   late Future<void> _ready;
 
+  /// Moved on by a reset. A read begun before it is dropped when it lands,
+  /// and a change begun before it does not read the book back, so neither
+  /// can put entries into memory after a wipe.
+  int _generation = 0;
+
   @override
   AddressBook build() {
     _ready = Future.microtask(_load);
@@ -60,9 +70,17 @@ class AddressBookNotifier extends Notifier<AddressBook> {
   }
 
   Future<void> _load() async {
+    final generation = _generation;
     final entries = await _service.list();
-    if (!ref.mounted) return;
+    if (!ref.mounted || generation != _generation) return;
     state = AddressBook(entries: entries, loaded: true);
+  }
+
+  /// The read-back after a change begun at [generation]: skipped when a
+  /// reset has landed since.
+  Future<void> _loadAfter(int generation) async {
+    if (generation != _generation) return;
+    await _load();
   }
 
   /// Read the stored list again.
@@ -79,30 +97,36 @@ class AddressBookNotifier extends Notifier<AddressBook> {
     required String address,
   }) async {
     await _ready;
+    final generation = _generation;
     final entry = await _service.add(name: name, address: address);
-    await _load();
+    await _loadAfter(generation);
     return entry;
   }
 
   Future<AddressBookEntry> rename(String id, String name) async {
     await _ready;
+    final generation = _generation;
     final entry = await _service.rename(id, name);
-    await _load();
+    await _loadAfter(generation);
     return entry;
   }
 
   Future<void> remove(String id) async {
     await _ready;
+    final generation = _generation;
     await _service.remove(id);
-    await _load();
+    await _loadAfter(generation);
   }
 
-  /// Empty, for a wipe. The stored key goes with
-  /// SecureStorageService.wipeWallet; this is the state in memory.
+  /// Empty, for a wipe: the state at once, then the stored book through the
+  /// service's queue. Settings awaits this before the wallet is wiped;
+  /// SecureStorageService.wipeWallet deletes the same key by name as well.
   Future<void> resetToDefaults() async {
     await _ready;
     if (!ref.mounted) return;
+    _generation++;
     state = const AddressBook(loaded: true);
+    await _service.clear();
   }
 }
 

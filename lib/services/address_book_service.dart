@@ -205,6 +205,11 @@ class AddressBookService {
         await _write(kept);
       });
 
+  /// Delete the book, for a wipe. It takes its turn in the write queue, so
+  /// a change that read the book before the wipe lands first and is then
+  /// deleted with the rest, never written back after it.
+  Future<void> clear() => _mutate(() => _storage.delete(key: storageKey));
+
   /// An id no row carries: hex from a secure generator, as the wallet ids
   /// are, so it is never a counter and never a slice of the address.
   static String _freshId(Set<String> taken) {

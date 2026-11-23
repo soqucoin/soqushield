@@ -3,6 +3,7 @@
 // a row; the picker on Send offering the wallet's network only; and the SENT
 // screen's offer to save a recipient the book does not hold.
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -18,6 +19,7 @@ import 'package:soqushield/providers/session_provider.dart';
 import 'package:soqushield/providers/wallet_provider.dart';
 import 'package:soqushield/screens/address_book/address_book_screen.dart';
 import 'package:soqushield/screens/send/address_book_picker.dart';
+import 'package:soqushield/screens/send/scan_address_sheet.dart';
 import 'package:soqushield/screens/send/send_pilot_screen.dart';
 import 'package:soqushield/services/address_book_service.dart';
 
@@ -58,7 +60,9 @@ class _SendingNotifier extends MockWalletNotifier {
 }
 
 Widget _scoped(Widget child,
-        {SoqNetwork network = SoqNetwork.mainnet, WalletNotifier? wallet}) =>
+        {SoqNetwork network = SoqNetwork.mainnet,
+        WalletNotifier? wallet,
+        List<dynamic> extra = const []}) =>
     ProviderScope(
       overrides: [
         authProvider
@@ -69,6 +73,7 @@ Widget _scoped(Widget child,
         quietPrice,
         walletProvider.overrideWith(
             () => wallet ?? MockWalletNotifier(_wallet(network))),
+        ...extra,
       ],
       child: MaterialApp(home: child),
     );
@@ -222,6 +227,69 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('dialog confirm')));
       await tester.pumpAndSettle();
       expect(find.text('Address copied'), findsOneWidget);
+    });
+  });
+
+  group('the save dialog under a save in flight', () {
+    testWidgets('Scan and Paste do nothing, and the save still lands',
+        (tester) async {
+      var scans = 0;
+      await tester.pumpWidget(_scoped(const AddressBookScreen(), extra: [
+        scanAddressProvider.overrideWithValue((context, network) async {
+          scans++;
+          return _stagenet;
+        }),
+      ]));
+      await _settle(tester);
+      await tester.tap(find.byKey(const ValueKey('nav Save an address')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('entry-name')), 'Alice');
+      await tester.enterText(find.byKey(const Key('entry-address')), _mainnet);
+
+      final hold = Completer<void>();
+      secureStorageWriteHolds[_key] = hold;
+      await tester.tap(find.byKey(const ValueKey('dialog confirm')));
+      await _settle(tester);
+      expect(find.text('SAVE AN ADDRESS'), findsOneWidget,
+          reason: 'the write is held, the dialog is busy');
+      await tester.tap(find.byKey(const Key('entry-scan')));
+      await tester.tap(find.byKey(const Key('entry-paste')));
+      await _settle(tester);
+      expect(scans, 0, reason: 'no scanner over a save in flight');
+
+      hold.complete();
+      await tester.pumpAndSettle();
+      expect(find.text('SAVE AN ADDRESS'), findsNothing);
+      expect(find.text('Alice'), findsOneWidget);
+      expect(_stored().single['address'], _mainnet);
+    });
+
+    testWidgets('a dialog dismissed while its save is in flight pops nothing '
+        'under it, and the saved row still appears', (tester) async {
+      await tester.pumpWidget(_scoped(const AddressBookScreen()));
+      await _settle(tester);
+      await tester.tap(find.byKey(const ValueKey('nav Save an address')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('entry-name')), 'Alice');
+      await tester.enterText(find.byKey(const Key('entry-address')), _mainnet);
+
+      final hold = Completer<void>();
+      secureStorageWriteHolds[_key] = hold;
+      await tester.tap(find.byKey(const ValueKey('dialog confirm')));
+      await _settle(tester);
+      // The barrier: the dialog is dismissed while the write is held.
+      await tester.tapAt(const Offset(8, 8));
+      await _settle(tester);
+      expect(find.text('SAVE AN ADDRESS'), findsNothing);
+
+      hold.complete();
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.text('ADDRESS BOOK'), findsOneWidget,
+          reason: 'the screen under the dialog is still there');
+      expect(find.text('Alice'), findsOneWidget,
+          reason: 'the save landed and the book shows it');
+      expect(_stored().single['address'], _mainnet);
     });
   });
 

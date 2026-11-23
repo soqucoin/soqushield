@@ -3,6 +3,7 @@
 // empty book, that a row whose address no longer validates is dropped, and
 // that a wipe removes the book's key.
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -80,6 +81,16 @@ void main() {
           _row('ab', '\u202Eecila  ', _mainnet.toUpperCase()));
       expect(e!.name, 'ecila');
       expect(e.address, _mainnet);
+    });
+
+    test('a mixed-case stored address is dropped, not repaired; an uppercase '
+        'one is read back lowercase', () {
+      final flipped = _mainnet.replaceRange(3, 4, 'P');
+      expect(AddressBookEntry.fromJson(_row('ab', 'Alice', flipped)), isNull);
+      expect(
+          AddressBookEntry.fromJson(_row('ab', 'Alice', _mainnet.toUpperCase()))!
+              .address,
+          _mainnet);
     });
 
     test('a blank name gets the fallback', () {
@@ -218,10 +229,29 @@ void main() {
         _row('a', 'Alice', _mainnet),
         _row('b', 'Bad', '${_mainnet.substring(0, _mainnet.length - 1)}m'),
         'junk',
+        _row('m', 'Mixed', _mainnet.replaceRange(3, 4, 'P')),
         _row('c', 'Carol', _stagenet),
       ]);
       final list = await book.list();
       expect(list.map((e) => e.name), ['Alice', 'Carol']);
+    });
+
+    test('clear takes its turn behind a write in flight', () async {
+      await book.add(name: 'Alice', address: _mainnet);
+      final hold = Completer<void>();
+      secureStorageWriteHolds[_key] = hold;
+      final adding = book.add(name: 'Bob', address: _stagenet);
+      await Future<void>.delayed(Duration.zero);
+      final clearing = book.clear();
+      await Future<void>.delayed(Duration.zero);
+      expect(secureStore.containsKey(_key), isTrue,
+          reason: 'the clear waits for the write');
+      hold.complete();
+      await adding;
+      await clearing;
+      expect(secureStore.containsKey(_key), isFalse,
+          reason: 'the write landed, then the clear deleted it');
+      expect(await book.list(), isEmpty);
     });
 
     test('the wipe deletes the book\'s key by name', () async {
@@ -272,6 +302,63 @@ void main() {
       await notifier.resetToDefaults();
       expect(container.read(addressBookProvider).entries, isEmpty);
       expect(container.read(addressBookProvider).loaded, isTrue);
+      expect(secureStore.containsKey(_key), isFalse,
+          reason: 'the reset deletes the stored book');
+    });
+
+    test('a reset during a held write: the write lands, the clear follows, '
+        'and the state stays empty', () async {
+      secureStore[_key] = json.encode([_row('a', 'Alice', _mainnet)]);
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      container.read(addressBookProvider);
+      await _settle();
+      final notifier = container.read(addressBookProvider.notifier);
+
+      final hold = Completer<void>();
+      secureStorageWriteHolds[_key] = hold;
+      final adding = notifier.add(name: 'Bob', address: _stagenet);
+      await _settle();
+      final resetting = notifier.resetToDefaults();
+      await _settle();
+      expect(container.read(addressBookProvider).entries, isEmpty,
+          reason: 'the state empties at once');
+      expect(secureStore.containsKey(_key), isTrue,
+          reason: 'the clear waits its turn behind the write');
+
+      hold.complete();
+      await adding;
+      await resetting;
+      await _settle();
+      expect(secureStore.containsKey(_key), isFalse,
+          reason: 'the clear ran after the write');
+      expect(container.read(addressBookProvider).entries, isEmpty,
+          reason: 'the add does not read the book back after the reset');
+    });
+
+    test('a reload in flight when the reset lands cannot put entries back',
+        () async {
+      secureStore[_key] = json.encode([_row('a', 'Alice', _mainnet)]);
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      container.read(addressBookProvider);
+      await _settle();
+      expect(container.read(addressBookProvider).entries, hasLength(1));
+      final notifier = container.read(addressBookProvider.notifier);
+
+      final hold = Completer<void>();
+      secureStorageReadHolds[_key] = hold;
+      final reloading = notifier.reload();
+      await _settle();
+      await notifier.resetToDefaults();
+      expect(container.read(addressBookProvider).entries, isEmpty);
+
+      hold.complete();
+      await reloading;
+      await _settle();
+      expect(container.read(addressBookProvider).entries, isEmpty,
+          reason: 'the read that began before the reset is dropped');
+      expect(secureStore.containsKey(_key), isFalse);
     });
   });
 }
