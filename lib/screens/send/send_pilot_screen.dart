@@ -10,11 +10,13 @@
 //
 // Copyright 2026 Soqucoin Labs Inc.
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'scan_address_sheet.dart';
 import '../../theme/instrument.dart';
 import '../../theme/figures.dart';
 import '../../theme/fmt.dart';
@@ -437,6 +439,9 @@ class _SendPilotScreenState extends ConsumerState<SendPilotScreen>
             formatters: [
               FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9]'))
             ],
+            // The camera reads the address. Not on the web, where the
+            // decoder would be fetched from a content network at run time.
+            trailing: kIsWeb ? null : _scanButton(),
           ),
           const SizedBox(height: 12),
           _feeLine(ticker),
@@ -678,6 +683,33 @@ class _SendPilotScreenState extends ConsumerState<SendPilotScreen>
         ),
       );
 
+  // ── the scanner ──
+
+  /// The scan icon in the recipient field. The address the camera reads
+  /// lands in the field as if typed, and goes through the same checks at
+  /// Send: the field is the one place a recipient comes from.
+  Widget _scanButton() => IconButton(
+        key: const Key('send-scan'),
+        tooltip: 'Scan a QR code',
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+        icon: const Icon(Icons.qr_code_scanner_rounded,
+            size: 18, color: Instrument.label),
+        onPressed: _inFlight ? null : _scanRecipient,
+      );
+
+  Future<void> _scanRecipient() async {
+    final scan = ref.read(scanAddressProvider);
+    final address = await scan(context, ref.read(walletProvider).network);
+    if (!mounted || address == null) return;
+    setState(() {
+      _recipientCtrl.text = address;
+      _recipientCtrl.selection =
+          TextSelection.collapsed(offset: address.length);
+    });
+    HapticFeedback.selectionClick();
+  }
+
   // ── shared bits ──
   Widget _topBar(String title) => Padding(
         padding: const EdgeInsets.only(top: 4, bottom: 2),
@@ -736,6 +768,7 @@ class _SendPilotScreenState extends ConsumerState<SendPilotScreen>
     TextInputType? keyboard,
     List<TextInputFormatter>? formatters,
     ValueChanged<String>? onChanged,
+    Widget? trailing,
   }) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -761,6 +794,9 @@ class _SendPilotScreenState extends ConsumerState<SendPilotScreen>
           suffixText: suffix,
           suffixStyle: TextStyle(
               color: Instrument.label, fontSize: 11, fontFamily: kMono),
+          suffixIcon: trailing,
+          suffixIconConstraints:
+              const BoxConstraints(minWidth: 40, minHeight: 40),
         ),
       ),
     );

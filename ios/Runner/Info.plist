@@ -94,9 +94,11 @@
 	</array>
 	<key>NSFaceIDUsageDescription</key>
 	<string>SoquShield uses Face ID to protect your quantum-safe wallet.</string>
-	<!-- NSCameraUsageDescription removed 2026-06-24: the app has no QR scanner (only
-	     qr_flutter generation) — declaring an unused camera permission is an App Review risk.
-	     Re-add this string if/when a receive-by-scan QR scanner is implemented. -->
+	<!-- The send screen's QR scanner (mobile_scanner) reads a recipient address through the
+	     camera. The key was absent until the scanner arrived, because an unused camera
+	     permission is an App Review risk; a test under test/ ties it to the dependency. -->
+	<key>NSCameraUsageDescription</key>
+	<string>SoquShield uses the camera to scan a Soqucoin address from a QR code.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<!-- ATS fully enforced — no exception domains. NSAllowsArbitraryLoads removed (SB-9);

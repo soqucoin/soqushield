@@ -455,6 +455,9 @@ void main() {
   });
 
   group('receive', () {
+    // TODO(eltoo): this pin, the Receive QR and the send scanner's parser
+    // (lib/services/address_scan.dart) change together once eltoo channels
+    // land and a code carries more than the on-chain address.
     testWidgets('the QR encodes the bare address and the screen takes no input',
         (tester) async {
       await tester.pumpWidget(_scoped(_wallet(SoqNetwork.mainnet, _mainnetAddress), const MaterialApp(home: ReceivePilotScreen())));

@@ -234,7 +234,7 @@ List<GuideCategory> get guideCategories => [
           steps: [
             'From the Wallet tab, tap SEND.',
             'Enter the amount.',
-            'Paste the recipient\'s address. The app checks that it belongs to the network you are on.',
+            'Paste the recipient\'s address, or tap the scan icon beside the address field and point the camera at their QR code. The app checks that the address belongs to the network you are on.',
             'Review the FEE line. The fee pays the network, not us.',
             'Tap SEND SOQ (SEND TSOQ on Stagenet) and confirm with Face ID or your passcode.',
           ],
