@@ -348,6 +348,12 @@ void main() {
           manifest,
           contains('<uses-feature android:name="android.hardware.camera" '
               'android:required="false" />'));
+      // The camera permission implies autofocus too; Play filters on both.
+      expect(
+          manifest,
+          contains('<uses-feature '
+              'android:name="android.hardware.camera.autofocus" '
+              'android:required="false" />'));
     });
   });
 

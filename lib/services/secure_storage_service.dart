@@ -25,6 +25,15 @@ const kSharedSecureStorage = FlutterSecureStorage(
   aOptions: AndroidOptions(encryptedSharedPreferences: true),
 );
 
+/// For what stays on this device: the Android options every instance uses
+/// (one file), and on iOS a keychain class that no backup carries to
+/// another phone. The address book is kept here.
+const kDeviceOnlySecureStorage = FlutterSecureStorage(
+  aOptions: AndroidOptions(encryptedSharedPreferences: true),
+  iOptions: IOSOptions(
+      accessibility: KeychainAccessibility.first_unlock_this_device),
+);
+
 /// Secure persistent storage for wallet secrets.
 ///
 /// Uses platform-native secure storage:
@@ -600,6 +609,11 @@ class SecureStorageService {
       ...addressBookKeys,
     ]) {
       await kSharedSecureStorage.delete(key: key);
+    }
+    // The book is kept in the device-only class; on iOS a delete matches
+    // the class, so it goes through the instance that wrote it.
+    for (final key in addressBookKeys) {
+      await kDeviceOnlySecureStorage.delete(key: key);
     }
   }
 

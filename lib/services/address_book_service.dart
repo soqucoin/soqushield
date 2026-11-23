@@ -27,7 +27,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../models/address_book_entry.dart';
 import '../models/wallet_keys.dart';
-import 'secure_storage_service.dart' show kSharedSecureStorage;
+import 'secure_storage_service.dart' show kDeviceOnlySecureStorage;
 import 'tx_builder.dart';
 
 /// The book refused a change, for a reason the owner can read as it is.
@@ -51,8 +51,12 @@ class AddressBookService {
 
   final FlutterSecureStorage _storage;
 
+  /// The instance the book is kept in, for a test to check its options.
+  @visibleForTesting
+  FlutterSecureStorage get storage => _storage;
+
   AddressBookService({FlutterSecureStorage? storage})
-      : _storage = storage ?? kSharedSecureStorage;
+      : _storage = storage ?? kDeviceOnlySecureStorage;
 
   /// Every saved address, oldest first. An unreadable book reads as empty
   /// rather than throwing: the screens still open, and nothing is written.

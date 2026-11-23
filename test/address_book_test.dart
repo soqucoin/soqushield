@@ -254,6 +254,22 @@ void main() {
       expect(await book.list(), isEmpty);
     });
 
+    test('the book is kept in a keychain class no backup moves to another '
+        'phone, and the wipe deletes it through that class', () async {
+      const deviceOnly = 'first_unlock_this_device';
+      expect(AddressBookService().storage, same(kDeviceOnlySecureStorage));
+      expect(kDeviceOnlySecureStorage.iOptions.params['accessibility'],
+          deviceOnly);
+      expect(kDeviceOnlySecureStorage.aOptions.params,
+          kSharedSecureStorage.aOptions.params,
+          reason: 'one Android option set keeps every key in one file');
+      await book.add(name: 'Alice', address: _mainnet);
+      secureStorageCalls.clear();
+      await SecureStorageService().wipeWallet();
+      expect(secureStorageCalls.where((c) => c == 'delete $_key'), hasLength(2),
+          reason: 'through the shared and the device-only instances');
+    });
+
     test('the wipe deletes the book\'s key by name', () async {
       expect(SecureStorageService.addressBookKeys,
           containsAll(AddressBookService.storedKeys));
