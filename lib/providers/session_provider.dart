@@ -56,6 +56,32 @@ class SessionConfig {
       minutes == 0 ? 'Never' : '$minutes min';
 }
 
+/// One raised guard over the app's own system UI, lowered exactly once.
+///
+/// Released either by the action it wraps ending, or by the site that
+/// abandons the prompt behind it. [release] is idempotent, so a site may
+/// drop a prompt and lower its guard without racing the release that would
+/// follow if that prompt ever did answer.
+class SystemUiGuard {
+  SystemUiGuard._(this._lower);
+
+  /// A guard over nothing, for a session double that keeps no depth.
+  @visibleForTesting
+  SystemUiGuard.noop() : _lower = _nothing;
+
+  static void _nothing() {}
+
+  final void Function() _lower;
+  bool _released = false;
+
+  /// Lower this guard. A second call does nothing.
+  void release() {
+    if (_released) return;
+    _released = true;
+    _lower();
+  }
+}
+
 /// Manages session security — timeout timer, failed attempts, auto-lock.
 class SessionNotifier extends Notifier<SessionConfig> {
   static const _keyTimeout = 'soq_session_timeout_v1';
@@ -248,17 +274,35 @@ class SessionNotifier extends Notifier<SessionConfig> {
   @visibleForTesting
   DateTime Function() clock = DateTime.now;
 
-  /// Run [action], which raises system UI of the app's own, without the
-  /// background and foreground events around it locking the wallet.
-  Future<T> whileSystemUi<T>(Future<T> Function() action) async {
+  /// Raise the guard for one piece of the app's own system UI and hand back
+  /// the means to lower it.
+  ///
+  /// For a prompt that can be abandoned before it answers. A credential
+  /// request that never answers would otherwise hold the guard up for the
+  /// rest of the process: the depth never returns to zero, so every later
+  /// departure reads as the app's own system UI and neither clears the key
+  /// nor locks. The site that drops such a prompt releases its guard at the
+  /// moment it drops it, without waiting for a result that may never come.
+  ///
+  /// Prefer [whileSystemUi] wherever the action is known to complete.
+  SystemUiGuard raiseSystemUi() {
     // Reference-counted: a second prompt raised while the first is still
     // pending (a tap to unlock) keeps the guard up until both have ended.
     _systemUiDepth++;
     _pausedBehindSystemUi = false;
+    return SystemUiGuard._(() {
+      if (_systemUiDepth > 0) _systemUiDepth--;
+    });
+  }
+
+  /// Run [action], which raises system UI of the app's own, without the
+  /// background and foreground events around it locking the wallet.
+  Future<T> whileSystemUi<T>(Future<T> Function() action) async {
+    final guard = raiseSystemUi();
     try {
       return await action();
     } finally {
-      _systemUiDepth--;
+      guard.release();
     }
   }
 

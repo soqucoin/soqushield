@@ -187,6 +187,8 @@ class MockSessionNotifier extends Notifier<SessionConfig> implements SessionNoti
   @override
   Future<T> whileSystemUi<T>(Future<T> Function() action) => action();
   @override
+  SystemUiGuard raiseSystemUi() => SystemUiGuard.noop();
+  @override
   dynamic noSuchMethod(Invocation invocation) => null;
 }
 

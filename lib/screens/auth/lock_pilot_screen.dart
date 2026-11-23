@@ -43,6 +43,9 @@ class _LockPilotScreenState extends ConsumerState<LockPilotScreen> {
   // Each credential request carries its number; a result that arrives for an
   // earlier number (a request dropped by a tap to unlock) is ignored.
   int _attempt = 0;
+  // The guard over the prompt now up, held so that a tap to unlock, or this
+  // screen leaving, can lower it without waiting for an answer.
+  SystemUiGuard? _promptGuard;
 
   @override
   void initState() {
@@ -90,6 +93,13 @@ class _LockPilotScreenState extends ConsumerState<LockPilotScreen> {
     // Not awaited: the platform call is a no-op on iOS and must never hold
     // the fresh request back.
     unawaited(ref.read(authServiceProvider).cancelAuthentication());
+    // The dropped prompt may never answer, so its guard comes down here
+    // rather than waiting on a result. Left up, it would hold the system-UI
+    // depth above zero for the rest of the process, and every later
+    // departure would read as the app's own system UI: no key clear, no
+    // lock.
+    _promptGuard?.release();
+    _promptGuard = null;
     setState(() {
       _authenticating = false;
       _slow = false;
@@ -101,6 +111,10 @@ class _LockPilotScreenState extends ConsumerState<LockPilotScreen> {
   void dispose() {
     _lockoutTicker?.cancel();
     _slowTimer?.cancel();
+    // A prompt still up as this screen goes carries the same risk as one
+    // dropped by a tap: its answer may never come.
+    _promptGuard?.release();
+    _promptGuard = null;
     super.dispose();
   }
 
@@ -151,7 +165,19 @@ class _LockPilotScreenState extends ConsumerState<LockPilotScreen> {
       return;
     }
 
-    final outcome = await session.whileSystemUi(service.authenticate);
+    // The guard is held here rather than by [whileSystemUi], because this
+    // prompt may be dropped by a tap to unlock and never answer. The tap
+    // releases it; this release is the one for a prompt that does answer,
+    // and the second of the two does nothing.
+    final guard = session.raiseSystemUi();
+    _promptGuard = guard;
+    final AuthOutcome outcome;
+    try {
+      outcome = await service.authenticate();
+    } finally {
+      guard.release();
+      if (identical(_promptGuard, guard)) _promptGuard = null;
+    }
     if (attempt != _attempt) {
       debugPrint('LOCK: stale result $outcome for attempt $attempt ignored');
       return;
