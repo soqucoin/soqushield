@@ -110,6 +110,22 @@ class _PendingAuthService extends FakeAuthService {
       (await authenticate()) == AuthOutcome.success;
 }
 
+/// A device credential whose availability check is asked for and does not
+/// answer until a test lets it, so a tap to unlock can land while an
+/// attempt is still inside that await.
+class _PendingAvailabilityService extends _PendingAuthService {
+  /// One completer per check, so a test can answer an abandoned attempt's
+  /// check after the fresh attempt has started its own.
+  final List<Completer<bool>> availability = [];
+
+  @override
+  Future<bool> isDeviceAuthAvailable() {
+    final c = Completer<bool>();
+    availability.add(c);
+    return c.future;
+  }
+}
+
 Future<void> _microtasks() async {
   for (var i = 0; i < 5; i++) {
     await Future<void>.delayed(Duration.zero);
@@ -427,6 +443,69 @@ void main() {
     }
     expect(find.byType(LockPilotScreen), findsNothing);
     await t.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('a tap to unlock while the availability check is still in '
+      'flight opens no second prompt when that check answers', (t) async {
+    // The stale-attempt check used to run only where the check reported no
+    // credential. An attempt abandoned by the tap, whose check then came
+    // back available, went on to raise a native prompt of its own beside
+    // the fresh one.
+    t.view.physicalSize = const Size(800, 1600);
+    t.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      t.view.resetPhysicalSize();
+      t.view.resetDevicePixelRatio();
+    });
+    final credential = _PendingAvailabilityService();
+    final container = ProviderContainer(overrides: [
+      authProvider.overrideWith(() => MockAuthNotifier(AuthStatus.locked)),
+      authServiceProvider.overrideWithValue(credential),
+      // Not backed up, so the inactivity timer never arms and outlives the
+      // test as a pending timer.
+      walletProvider.overrideWith(() =>
+          MockWalletNotifier(_wallet().copyWith(backupConfirmed: false))),
+    ]);
+    addTearDown(container.dispose);
+    await t.pumpWidget(UncontrolledProviderScope(
+      container: container,
+      child: const MaterialApp(home: LockPilotScreen()),
+    ));
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 500));
+    await t.pump();
+
+    // The first attempt is inside the availability await, so the credential
+    // has not been asked for anything yet.
+    expect(credential.availability, hasLength(1));
+    expect(credential.prompts, 0);
+
+    // Four seconds without an answer: the tap appears, and it asks again.
+    await t.pump(const Duration(seconds: 4));
+    await t.pump();
+    expect(find.byKey(const Key('lock-retry')), findsOneWidget);
+    await t.tap(find.byKey(const Key('lock-retry')));
+    await t.pump();
+    expect(credential.availability, hasLength(2),
+        reason: 'the fresh attempt runs a check of its own');
+
+    // The abandoned attempt's check answers, and answers available. It must
+    // stop there.
+    credential.availability[0].complete(true);
+    await t.pump();
+    await t.pump();
+    expect(credential.prompts, 0,
+        reason: 'the abandoned attempt raised a second native prompt beside '
+            'the one the owner is looking at');
+
+    // The fresh attempt's check answers: that one does prompt, once.
+    credential.availability[1].complete(true);
+    await t.pump();
+    await t.pump();
+    expect(credential.prompts, 1);
+
+    await t.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+    await t.pump(const Duration(seconds: 2));
   });
 
   group('the OS declining to run the check is not a failed attempt', () {
