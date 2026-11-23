@@ -54,12 +54,19 @@ class AddressScan {
       if (query >= 0) text = text.substring(0, query);
       text = text.trim();
     }
-    // Only a string shaped like an address of one of the app's networks
-    // reaches the validator. The other network's address goes through so
-    // the validator can say which network it belongs to.
+    // Only a string whose human-readable part, everything before the last
+    // separator, is one of the app's networks reaches the validator. The
+    // other network's address goes through so the validator can say which
+    // network it belongs to. The prefix alone is not enough: a code can put
+    // one in front of its own words ("sq1call us now1qqqqqqq"), and the
+    // validator, which reads the part before the LAST separator, would then
+    // read those words back as an unknown prefix.
     final lower = text.toLowerCase();
-    final shaped = SoqNetwork.values.any((n) => lower.startsWith('${n.hrp}1'));
-    if (!shaped) return const AddressScan._(error: notAnAddress);
+    final separator = lower.lastIndexOf('1');
+    final hrp = separator < 0 ? '' : lower.substring(0, separator);
+    if (!SoqNetwork.values.any((n) => n.hrp == hrp)) {
+      return const AddressScan._(error: notAnAddress);
+    }
     // Bech32m allows an all-uppercase spelling, and a QR code's alphanumeric
     // mode encodes one in fewer modules; it is the same address, carried on
     // in the lowercase form. A mixed-case spelling is left as it is, for the

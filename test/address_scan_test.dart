@@ -86,6 +86,21 @@ void main() {
       }
     });
 
+    test('a code that puts a prefix in front of its own words is not an '
+        'address: the part before the last separator must be a network', () {
+      for (final raw in [
+        'sq1call support now1qqqqqqq',
+        'SQ1CALL 0800 000 0001QQQQQQQ',
+        'ssq1 refund desk 1qqqqqqq',
+        'sq1$_mainnet',
+        'soqucoin:sq1see the label1qqqqqqq?label=x',
+      ]) {
+        final scan = AddressScan.parse(raw, SoqNetwork.mainnet);
+        expect(scan.accepted, isFalse, reason: raw);
+        expect(scan.error, AddressScan.notAnAddress, reason: raw);
+      }
+    });
+
     test('refuses a mixed-case spelling and a wrong checksum with the '
         'validator\'s own reason', () {
       final mixed = AddressScan.parse(

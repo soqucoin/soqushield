@@ -102,6 +102,14 @@ class _ScanAddressSheetState extends State<ScanAddressSheet> {
   /// camera keeps looking.
   void _onRaw(String raw) {
     if (_done || !mounted) return;
+    // A detection can land after the sheet is dismissed, while its route is
+    // still animating out. Nothing under the sheet may be popped in its
+    // place, so a sheet that is no longer the current route reads nothing.
+    final route = ModalRoute.of(context);
+    if (route == null || !route.isCurrent) {
+      _done = true;
+      return;
+    }
     final scan = AddressScan.parse(raw, widget.network);
     if (scan.accepted) {
       _done = true;

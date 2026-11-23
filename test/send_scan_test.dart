@@ -184,6 +184,45 @@ void main() {
       expect(result, _mainnet, reason: 'the address, without the amount');
     });
 
+    testWidgets('a code read while the sheet is on its way out pops nothing '
+        'under it', (tester) async {
+      String? result = 'unset';
+      void Function(String raw)? emit;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async {
+                result = await showModalBottomSheet<String>(
+                  context: context,
+                  isScrollControlled: true,
+                  builder: (_) => ScanAddressSheet(
+                    network: SoqNetwork.mainnet,
+                    camera: (_, onRaw) {
+                      emit = onRaw;
+                      return const SizedBox.expand();
+                    },
+                  ),
+                );
+              },
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      // The close control, then a detection before the next frame: the
+      // sheet is already on its way out.
+      await tester.tap(find.byKey(const Key('scan-close')));
+      emit!(_mainnet);
+      await tester.pumpAndSettle();
+      expect(find.byType(ScanAddressSheet), findsNothing);
+      expect(find.text('open'), findsOneWidget,
+          reason: 'the page under the sheet is still there');
+      expect(result, isNull, reason: 'the dismissal answered, not the code');
+    });
+
     testWidgets('closes empty from its close control', (tester) async {
       String? result = 'unset';
       await tester.pumpWidget(MaterialApp(
