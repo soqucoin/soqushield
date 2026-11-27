@@ -3,7 +3,7 @@
 //
 // Figure: THE BLOCK CLOCK (theme/block_clock_figure.dart). Below it the
 // chain's figures, the emission schedule at this height, and the pools that
-// found the last day's blocks on Mainnet, each with its share. Every number
+// found the last 1,440 blocks on Mainnet, each with its share. Every number
 // is the node's or the public explorer's own; the emission constants cite
 // the node's source (services/emission.dart). Nothing here holds an account
 // or a key: a pool pays its members to their own addresses later, and this
@@ -161,6 +161,9 @@ class _NetworkPilotScreenState extends ConsumerState<NetworkPilotScreen>
     final clocked = live &&
         chain.tipTime != null &&
         now.difference(chain.fetchedAt) < pollPeriod * 1.5;
+    // A figure fresh enough to lend its hashrate to the pools' shares: the
+    // clock's own age limit, so a figure kept over a long pause does not.
+    final fresh = live && now.difference(chain.fetchedAt) < pollPeriod * 1.5;
 
     final (statusText, statusColor) = loading
         ? ('SOQUCOIN · ML-DSA-44 · SYNCING', Instrument.label)
@@ -317,9 +320,11 @@ class _NetworkPilotScreenState extends ConsumerState<NetworkPilotScreen>
                     const InstrumentDivider(),
                     if (showPool)
                       // The hashrate the shares are read against is
-                      // Mainnet's: on Stagenet (an install that has not seen
-                      // Mainnet live) the rows show the shares alone.
-                      _poolsCard(poolsAsync, mainnet && live ? chain : null)
+                      // Mainnet's, read within the poll period: on Stagenet
+                      // (an install that has not seen Mainnet live) and on a
+                      // figure kept over a pause the rows show the shares
+                      // alone.
+                      _poolsCard(poolsAsync, mainnet && fresh ? chain : null)
                     else if (mainnet && !live)
                       _Card(
                         id: 'pools',
@@ -329,8 +334,8 @@ class _NetworkPilotScreenState extends ConsumerState<NetworkPilotScreen>
                         onToggle: () => _toggle('pools'),
                         children: [
                           _note('The pools report on the chain they mine. '
-                              'Who found its last day\'s blocks appears '
-                              'here once Mainnet answers.'),
+                              'Who found its last ${fmtInt(kPoolsWindow)} '
+                              'blocks appears here once Mainnet answers.'),
                         ],
                       ),
                   ],
@@ -365,8 +370,8 @@ class _NetworkPilotScreenState extends ConsumerState<NetworkPilotScreen>
       );
 
   /// The weather in words, under the clock: how the chain is doing against
-  /// its target spacing, and who found the last day's blocks when the pools
-  /// are shown. Each sentence states only what was read; with nothing read,
+  /// its target spacing, and who found the last blocks when the pools are
+  /// shown. Each sentence states only what was read; with nothing read,
   /// nothing (the cards carry the syncing and did-not-answer states
   /// themselves).
   Widget _weather(bool live, bool loading, bool clocked, Duration since,
@@ -383,10 +388,11 @@ class _NetworkPilotScreenState extends ConsumerState<NetworkPilotScreen>
     final pools = poolsAsync?.asData?.value;
     if (pools != null && pools.reachable && pools.pools.isNotEmpty) {
       final top = pools.pools.first;
-      final count = pools.pools.length;
+      final count = pools.groupCount;
+      final blocks = fmtInt(pools.blocks);
       parts.add(count == 1
-          ? '${top.label} found every block in the last day.'
-          : '$count pools found the last day\'s blocks; ${top.label} '
+          ? '${top.label} found all of the last $blocks blocks.'
+          : '$count pools found the last $blocks blocks; ${top.label} '
               'found ${fmtShare(pools.shareOf(top))}.');
     }
     if (parts.isEmpty) return const SizedBox(height: 2);
@@ -458,9 +464,9 @@ class _NetworkPilotScreenState extends ConsumerState<NetworkPilotScreen>
   }
 
   /// The pools' card: how many are mining beside the label, the two
-  /// biggest shares on one line, and inside, every pool with its share and
-  /// the hashrate that share stands for. [chain] is the live chain figure
-  /// the hashrate is taken from, or null while the chain is not read.
+  /// biggest shares on one line, and inside, the listed pools with their
+  /// shares and the hashrate each share stands for. [chain] is the fresh
+  /// Mainnet figure the hashrate is taken from, or null without one.
   Widget _poolsCard(AsyncValue<PoolsWeather> poolsAsync, ChainWeather? chain) {
     final pools = poolsAsync.asData?.value;
     if (pools == null || !pools.reachable) {
@@ -477,9 +483,9 @@ class _NetworkPilotScreenState extends ConsumerState<NetworkPilotScreen>
       );
     }
     final list = pools.pools;
-    final count = list.length;
+    final count = pools.groupCount;
     final headline = list.isEmpty
-        ? 'NO BLOCKS IN THE LAST DAY'
+        ? 'NO BLOCKS GROUPED'
         : [
             for (final p in list.take(2))
               '${p.label.toUpperCase()} ${fmtShare(pools.shareOf(p))}',
@@ -494,7 +500,8 @@ class _NetworkPilotScreenState extends ConsumerState<NetworkPilotScreen>
         Text('${fmtInt(count)} MINING', style: Instrument.eyebrow(size: 9.5)),
       ]),
       headline: headline,
-      sub: '${fmtInt(pools.blocks)} BLOCKS · LAST 24 H · MAINNET',
+      sub: 'BLOCKS ${fmtInt(pools.startHeight)} TO ${fmtInt(pools.endHeight)} · '
+          'MAINNET',
       open: _open.contains('pools'),
       onToggle: () => _toggle('pools'),
       children: _poolRows(pools, chain),
@@ -518,11 +525,15 @@ class _NetworkPilotScreenState extends ConsumerState<NetworkPilotScreen>
               ? null
               : '~${fmtHashrate(network * pools.shareOf(p))}',
         ),
-      _note('The explorer groups the last day\'s blocks by the address each '
-          'one pays its reward to, a pool\'s own, and names the pools it '
-          'knows. A pool\'s hashrate is its share of the blocks times the '
-          'network\'s hashrate: an estimate. Pool members are never visible; '
-          'this screen reads only what the chain shows.'),
+      if (pools.unlisted > 0)
+        _note('The ${fmtInt(pools.pools.length)} biggest pools are listed; '
+            '${fmtInt(pools.unlisted)} more found a block, counted in the '
+            'shares.'),
+      _note('The explorer groups these blocks by the address each one pays '
+          'its reward to, a pool\'s own, and names the pools it knows. A '
+          'pool\'s hashrate is its share of the blocks times the network\'s '
+          'hashrate: an estimate. Pool members are never visible; this '
+          'screen reads only what the chain shows.'),
     ];
   }
 

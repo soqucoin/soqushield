@@ -1,5 +1,5 @@
 // The network's weather: what the chain reports right now and who found its
-// last day's blocks, read through public endpoints only. Nothing here holds
+// last 1,440 blocks, read through public endpoints only. Nothing here holds
 // a key, a token or an account; the figures are the ones anyone can read
 // from the node's public RPC proxy and from the public explorer, and the app
 // only shows them.
@@ -121,9 +121,9 @@ class PoolShare {
   }
 }
 
-/// Who found the last day's blocks on Mainnet, read from the public
-/// explorer's mining summary over [kPoolsWindow] blocks back from the tip.
-/// [reachable] false when the explorer did not answer; [pools] is then
+/// Who found the last [kPoolsWindow] blocks on Mainnet, read from the
+/// public explorer's mining summary over that many blocks back from the
+/// tip. [reachable] false when the explorer did not answer; [pools] is then
 /// empty.
 class PoolsWeather {
   final bool reachable;
@@ -132,10 +132,16 @@ class PoolsWeather {
   final int startHeight;
   final int endHeight;
 
-  /// The blocks the summary grouped, the sum of the pools' counts.
+  /// The blocks the summary grouped, over every group, listed or not: the
+  /// denominator of every share.
   final int blocks;
 
-  /// Most blocks first; a tie by label.
+  /// The groups that found a block, listed or not; null reads as the
+  /// listed ones.
+  final int? groups;
+
+  /// The listed pools, most blocks first, a tie by label: at most
+  /// [kPoolsListed] of them.
   final List<PoolShare> pools;
   final DateTime fetchedAt;
 
@@ -144,26 +150,36 @@ class PoolsWeather {
     this.startHeight = 0,
     this.endHeight = 0,
     this.blocks = 0,
+    this.groups,
     this.pools = const [],
     required this.fetchedAt,
   });
+
+  /// How many pools found a block, the listed ones and the rest.
+  int get groupCount => groups ?? pools.length;
+
+  /// How many found a block but are not listed.
+  int get unlisted => groupCount - pools.length;
 
   /// A pool's share of the window's blocks, 0 to 1.
   double shareOf(PoolShare pool) =>
       blocks <= 0 ? 0 : (pool.blocks / blocks).clamp(0.0, 1.0);
 }
 
-/// The window the pools are read over: one day of blocks at the chain's
-/// sixty-second target.
+/// The window the pools are read over, in blocks: about a day at the
+/// chain's sixty-second target, which the chain only approximates, so the
+/// window is named in blocks wherever it is shown.
 const int kPoolsWindow = 1440;
 
-/// The most pools kept from one answer, and the longest name kept.
-const int _maxPools = 24;
+/// The most pools listed from one answer.
+const int kPoolsListed = 24;
+
+/// The longest name kept.
 const int _maxNameLength = 40;
 
 /// Two public GETs on the Mainnet explorer, the host the network endpoints
-/// name: the tip height, then the mining summary over the day of blocks
-/// ending at it. The explorer groups the blocks by the address each
+/// name: the tip height, then the mining summary over the [kPoolsWindow]
+/// blocks ending at it. The explorer groups the blocks by the address each
 /// coinbase pays, or by the pool's name when it knows the address; this
 /// reader keeps the names, the addresses and the counts and nothing else.
 /// The pools report on Mainnet whatever network the wallet is on. Any
@@ -217,13 +233,17 @@ const String _addressOnly = 'address-only:';
 
 /// The explorer's `miners` map: one entry per group, keyed by the pool's
 /// name or by `address-only:` and the address, each with the heights of
-/// its blocks. A group with no blocks, or with a key that reads as nothing,
-/// is dropped; the rest are sorted and capped. The explorer's own counts
-/// and fees are not read: the count is the heights' count.
+/// its blocks. Every group with a block counts towards the total and the
+/// group count; a group whose key reads as nothing is counted but not
+/// listed, and the listed ones are sorted and capped at [kPoolsListed], so
+/// a share is always a share of every block grouped. The explorer's own
+/// counts and fees are not read: the count is the heights' count.
 PoolsWeather _parsePools(Map<String, dynamic> body, int start, int end) {
   final now = DateTime.now();
   final miners = body['miners'];
   final pools = <PoolShare>[];
+  var total = 0;
+  var groups = 0;
   if (miners is Map) {
     for (final entry in miners.entries) {
       final key = entry.key;
@@ -231,6 +251,8 @@ PoolsWeather _parsePools(Map<String, dynamic> body, int start, int end) {
       if (key is! String || group is! Map) continue;
       final heights = group['blocks'];
       if (heights is! List || heights.isEmpty) continue;
+      total += heights.length;
+      groups++;
       if (key.startsWith(_addressOnly)) {
         final address = key.substring(_addressOnly.length);
         if (_looksLikeAddress(address)) {
@@ -247,17 +269,13 @@ PoolsWeather _parsePools(Map<String, dynamic> body, int start, int end) {
     final byBlocks = b.blocks.compareTo(a.blocks);
     return byBlocks != 0 ? byBlocks : a.label.compareTo(b.label);
   });
-  final kept = pools.take(_maxPools).toList();
-  var total = 0;
-  for (final p in kept) {
-    total += p.blocks;
-  }
   return PoolsWeather(
     reachable: true,
     startHeight: start,
     endHeight: end,
     blocks: total,
-    pools: kept,
+    groups: groups,
+    pools: pools.take(kPoolsListed).toList(),
     fetchedAt: now,
   );
 }

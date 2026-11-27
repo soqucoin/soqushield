@@ -206,7 +206,7 @@ void main() {
         ('chain', 'CHAIN · STAGENET. LAST BLOCK '),
         ('emission', 'EMISSION. 100,000 SOQ A BLOCK. NEXT 50,000 SOQ IN '),
         ('pools', 'POOLS. F2POOL 72% · SQ1PSJVU5Z…ZYFC2N 11% · 4 MORE. '
-            '145 BLOCKS · LAST 24 H · MAINNET. '),
+            'BLOCKS 64,458 TO 65,897 · MAINNET. '),
       ]) {
         final node = tester.getSemantics(find.byKey(ValueKey('card $id')));
         expect(node.label, startsWith(start), reason: id);
@@ -242,7 +242,7 @@ void main() {
       await _settle(tester);
       expect(
           _weatherText(tester),
-          'Blocks are arriving on time. 6 pools found the last day\'s blocks; '
+          'Blocks are arriving on time. 6 pools found the last 145 blocks; '
           'F2Pool found 72%.');
       await tester.pumpWidget(const SizedBox.shrink());
 
@@ -251,7 +251,7 @@ void main() {
           pools: _pools(shares: const [PoolShare(name: 'F2Pool', blocks: 9)])));
       await _settle(tester);
       expect(_weatherText(tester),
-          'The next block is a little late. F2Pool found every block in the last day.');
+          'The next block is a little late. F2Pool found all of the last 9 blocks.');
       await tester.pumpWidget(const SizedBox.shrink());
 
       await tester.pumpWidget(_screen(
@@ -293,7 +293,7 @@ void main() {
       await tester.pumpWidget(_screen(chain: stale, pools: _pools()));
       await _settle(tester);
       expect(_weatherText(tester),
-          '6 pools found the last day\'s blocks; F2Pool found 72%.',
+          '6 pools found the last 145 blocks; F2Pool found 72%.',
           reason: 'a figure older than the poll period: the pools alone');
       await tester.pumpWidget(const SizedBox.shrink());
 

@@ -364,8 +364,9 @@ void main() {
 
     test('a hostile answer reads as bounded text: control and invisible '
         'characters go, a long name is cut, a bad address reads as a name, '
-        'an empty or blockless group is dropped, and more than 24 groups are '
-        'capped at the biggest', () async {
+        'a blockless group is dropped, a nameless one is counted but not '
+        'listed, and more than 24 groups list the biggest with every block '
+        'still in the denominator', () async {
       final many = {for (var i = 0; i < 30; i++) 'pool $i': _group('pool $i', i + 1)};
       final hostile = {
         'miners': {
@@ -393,7 +394,15 @@ void main() {
       expect(labels, isNot(contains('counted')),
           reason: 'two blocks fall below the 24 biggest');
       expect(p.pools.last.blocks, 10, reason: '100, 60, 50, then 30 down to 10');
-      expect(p.blocks, p.pools.fold(0, (sum, s) => sum + s.blocks));
+      expect(p.blocks, 717,
+          reason: 'every block grouped: 465 + 100 + 50 + 40 (nameless) + 60 + 2');
+      expect(p.groupCount, 35, reason: '30 pools, F2Pool, the bad address, '
+          'the nameless, the long name, the counted');
+      expect(p.unlisted, 11);
+      expect(p.pools.fold(0, (sum, s) => sum + s.blocks), lessThan(p.blocks),
+          reason: 'the listed rows are not the whole window');
+      expect(fmtShare(p.shareOf(p.pools[0])), '14%',
+          reason: '100 of 717, not of the listed rows\' 580');
     });
 
     test('every field takes every JSON shape without a throw', () async {
@@ -422,6 +431,7 @@ void main() {
       expect(empty.reachable, isTrue);
       expect(empty.pools, isEmpty);
       expect(empty.blocks, 0);
+      expect(empty.groupCount, 0);
       expect(empty.shareOf(const PoolShare(name: 'x', blocks: 1)), 0);
     });
 
@@ -627,7 +637,7 @@ void main() {
         expect(find.textContaining('Blocks are arriving on time.'), findsOneWidget);
         expect(
             find.textContaining(
-                '6 pools found the last day\'s blocks; F2Pool found 72%.'),
+                '6 pools found the last 145 blocks; F2Pool found 72%.'),
             findsOneWidget);
         expect(find.text('LAST BLOCK ${fmtUtcTime(liveChain.tipTime!)}'),
             findsOneWidget, reason: 'the chain card\'s line');
@@ -670,7 +680,9 @@ void main() {
         expect(find.text('6 MINING'), findsOneWidget);
         expect(find.text('F2POOL 72% · SQ1PSJVU5Z…ZYFC2N 11% · 4 MORE'),
             findsOneWidget, reason: 'the pools card\'s line, closed');
-        expect(find.text('145 BLOCKS · LAST 24 H · MAINNET'), findsOneWidget);
+        expect(find.text('BLOCKS 64,458 TO 65,897 · MAINNET'), findsOneWidget,
+            reason: 'the window in blocks: a day at the target, which the '
+                'chain only approximates');
         expect(find.text('F2POOL'), findsNothing, reason: 'closed');
         await tester.tap(find.byKey(const ValueKey('card pools')));
         await tester.pump();
@@ -792,6 +804,83 @@ void main() {
       await tester.pump();
       expect(find.text('~140.7 MH/s'), findsOneWidget,
           reason: '1 of 145 blocks of 20.4 GH/s');
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('a chain figure older than the poll period lends no hashrate '
+        'to the pools', (tester) async {
+      _surface(tester, _large);
+      final kept = ChainWeather(
+        reachable: true,
+        height: 112105,
+        tipTime: DateTime.now().subtract(const Duration(minutes: 5)),
+        difficulty: 407.84,
+        hashrate: 20398783697.58,
+        mempoolTx: 3,
+        peers: 10,
+        fetchedAt: DateTime.now().subtract(const Duration(minutes: 5)),
+      );
+      await tester.pumpWidget(_screen(SoqNetwork.mainnet,
+          chain: kept, pools: await livePools(), seenLive: true));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      final list = find.byType(Scrollable).first;
+      await tester.scrollUntilVisible(
+          find.byKey(const ValueKey('card pools')), 120, scrollable: list);
+      await tester.tap(find.byKey(const ValueKey('card pools')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.scrollUntilVisible(find.text('F2POOL'), 120, scrollable: list);
+      await tester.pump();
+      expect(find.text('72%'), findsOneWidget, reason: 'the shares stand');
+      expect(find.textContaining(RegExp(r'^~[0-9.]+ [kMGTPE]?H/s$')),
+          findsNothing,
+          reason: 'a figure kept over a pause lends no hashrate');
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('the pools not listed are counted and said', (tester) async {
+      _surface(tester, _large);
+      final crowded = PoolsWeather(
+        reachable: true,
+        startHeight: 64458,
+        endHeight: 65897,
+        blocks: 1440,
+        groups: 30,
+        pools: const [
+          PoolShare(name: 'F2Pool', blocks: 1000),
+          PoolShare(name: 'LuxxPool', blocks: 100),
+          PoolShare(name: 'Mining-Dutch', blocks: 40),
+        ],
+        fetchedAt: DateTime.now(),
+      );
+      await tester.pumpWidget(_screen(SoqNetwork.mainnet,
+          chain: liveChain, pools: crowded, seenLive: true));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('30 MINING'), findsOneWidget);
+      expect(find.text('F2POOL 69% · LUXXPOOL 7% · 28 MORE'), findsOneWidget,
+          reason: 'the rest counts the unlisted too');
+      expect(
+          find.textContaining(
+              '30 pools found the last 1,440 blocks; F2Pool found 69%.'),
+          findsOneWidget);
+      final list = find.byType(Scrollable).first;
+      await tester.scrollUntilVisible(
+          find.byKey(const ValueKey('card pools')), 120, scrollable: list);
+      await tester.tap(find.byKey(const ValueKey('card pools')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.scrollUntilVisible(
+          find.textContaining('biggest pools are listed'), 120,
+          scrollable: list);
+      await tester.pump();
+      expect(
+          find.textContaining('The 3 biggest pools are listed; 27 more found '
+              'a block, counted in the shares.'),
+          findsOneWidget);
+      expect(find.text('3%'), findsOneWidget, reason: '40 of 1,440');
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
     });

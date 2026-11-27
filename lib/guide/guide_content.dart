@@ -279,7 +279,7 @@ List<GuideCategory> get guideCategories => [
       sections: [
         GuideSection(
           body:
-              'The Network tab reads what the chain reports right now and who found its last day\'s blocks, the way a weather app reads the sky. Every figure comes from the node you are connected to or from the public block explorer; nothing on this screen is an account, a balance or a key.',
+              'The Network tab reads what the chain reports right now and who found its last 1,440 blocks, the way a weather app reads the sky. Every figure comes from the node you are connected to or from the public block explorer; nothing on this screen is an account, a balance or a key.',
         ),
         GuideSection(
           heading: 'The block clock',
@@ -289,14 +289,14 @@ List<GuideCategory> get guideCategories => [
         GuideSection(
           heading: 'Under the clock',
           body:
-              'One sentence says in plain words how the chain is doing against its sixty-second target, and how many pools found the last day\'s blocks. Below it sit three cards: CHAIN, EMISSION and POOLS. Each shows a one-line summary. Tap a card to open its full figures, and tap it again to close it.',
+              'One sentence says in plain words how the chain is doing against its sixty-second target, and how many pools found the last 1,440 blocks. Below it sit three cards: CHAIN, EMISSION and POOLS. Each shows a one-line summary. Tap a card to open its full figures, and tap it again to close it.',
         ),
         GuideSection(
           heading: 'The figures, card by card',
           steps: [
             'CHAIN: HASHRATE is the node\'s estimate of the whole network\'s mining power. DIFFICULTY is how hard a block is to find right now. MEMPOOL counts transactions waiting for a block. PEERS is how many other nodes yours is talking to.',
             'EMISSION: BLOCK REWARD is what the block at this height pays. NEXT CHANGE is what the reward becomes, at which height, and how long the chain takes to get there at sixty-second blocks.',
-            'POOLS: every pool that found a block on Mainnet in the last day, most blocks first, with its share of those blocks and the hashrate that share stands for. The explorer tells pools apart by the address each one pays its block reward to, and names the ones it knows; a pool it does not know shows as that address. A pool\'s hashrate is its share of the blocks times the network\'s hashrate, so it is an estimate. Pool members are never visible: the app reads the chain, not any pool\'s accounts.',
+            'POOLS: every pool that found one of the last 1,440 blocks on Mainnet, about a day at the sixty-second target, most blocks first, with its share of those blocks and the hashrate that share stands for. The explorer tells pools apart by the address each one pays its block reward to, and names the ones it knows; a pool it does not know shows as that address. A pool\'s hashrate is its share of the blocks times the network\'s hashrate, so it is an estimate. Pool members are never visible: the app reads the chain, not any pool\'s accounts.',
           ],
         ),
         GuideSection(
