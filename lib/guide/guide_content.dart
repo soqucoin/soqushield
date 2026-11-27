@@ -274,12 +274,12 @@ List<GuideCategory> get guideCategories => [
     GuideArticle(
       id: 'network',
       title: 'The Network screen',
-      tagline: 'The weather of the chain and the pool, read live.',
+      tagline: 'The weather of the chain and its pools, read live.',
       icon: Icons.sensors_outlined,
       sections: [
         GuideSection(
           body:
-              'The Network tab reads what the chain and the pool report right now, the way a weather app reads the sky. Every figure comes from the node you are connected to or from the pool\'s public statistics; nothing on this screen is an account, a balance or a key.',
+              'The Network tab reads what the chain reports right now and who found its last day\'s blocks, the way a weather app reads the sky. Every figure comes from the node you are connected to or from the public block explorer; nothing on this screen is an account, a balance or a key.',
         ),
         GuideSection(
           heading: 'The block clock',
@@ -289,15 +289,14 @@ List<GuideCategory> get guideCategories => [
         GuideSection(
           heading: 'Under the clock',
           body:
-              'One sentence says in plain words how the chain is doing against its sixty-second target, and whether the pool is operational. Below it sit three cards: CHAIN, EMISSION and SOQUPOOL. Each shows a one-line summary. Tap a card to open its full figures, and tap it again to close it.',
+              'One sentence says in plain words how the chain is doing against its sixty-second target, and how many pools found the last day\'s blocks. Below it sit three cards: CHAIN, EMISSION and POOLS. Each shows a one-line summary. Tap a card to open its full figures, and tap it again to close it.',
         ),
         GuideSection(
           heading: 'The figures, card by card',
           steps: [
             'CHAIN: HASHRATE is the node\'s estimate of the whole network\'s mining power. DIFFICULTY is how hard a block is to find right now. MEMPOOL counts transactions waiting for a block. PEERS is how many other nodes yours is talking to.',
             'EMISSION: BLOCK REWARD is what the block at this height pays. NEXT CHANGE is what the reward becomes, at which height, and how long the chain takes to get there at sixty-second blocks.',
-            'SOQUPOOL: the pool\'s own published figures, with its status beside the name: its hashrate, how many miners and workers are connected, blocks found in the last day, luck, the effort of the current round, the next payout time, the fee and the regions. The pool pays its members to their own addresses; the app only reads what the pool publishes.',
-            'LATEST BLOCKS, inside the SOQUPOOL card, lists the blocks the pool found most recently.',
+            'POOLS: every pool that found a block on Mainnet in the last day, most blocks first, with its share of those blocks and the hashrate that share stands for. The explorer tells pools apart by the address each one pays its block reward to, and names the ones it knows; a pool it does not know shows as that address. A pool\'s hashrate is its share of the blocks times the network\'s hashrate, so it is an estimate. Pool members are never visible: the app reads the chain, not any pool\'s accounts.',
           ],
         ),
         GuideSection(
@@ -307,7 +306,7 @@ List<GuideCategory> get guideCategories => [
         ),
         GuideSection(
           note:
-              'While the app cannot reach the Mainnet node, the clock reads offline and the SOQUPOOL card waits. Both come alive when the connection returns, with no update needed.',
+              'While the app cannot reach the Mainnet node, the clock reads offline and the POOLS card waits. Both come alive when the connection returns, with no update needed.',
         ),
       ],
     ),

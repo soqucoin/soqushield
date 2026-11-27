@@ -1,17 +1,17 @@
 // PILOT — Network on the instrument language: the weather of the chain you
-// are on and of the pool, read live from public endpoints.
+// are on and of the pools that mine it, read live from public endpoints.
 //
 // Figure: THE BLOCK CLOCK (theme/block_clock_figure.dart). Below it the
-// chain's figures, the emission schedule at this height, the pool's public
-// figures and the pool's latest blocks. Every number is the node's or the
-// pool's own; the emission constants cite the node's source
-// (services/emission.dart). Nothing here holds an account or a key: the pool
-// pays its members to their own addresses, and this screen only reads what
-// the pool publishes.
+// chain's figures, the emission schedule at this height, and the pools that
+// found the last day's blocks on Mainnet, each with its share. Every number
+// is the node's or the public explorer's own; the emission constants cite
+// the node's source (services/emission.dart). Nothing here holds an account
+// or a key: a pool pays its members to their own addresses later, and this
+// screen only reads what the chain shows.
 //
 // On Mainnet, until this install has seen the node answer, the status reads
 // OFFLINE with the connecting line, the clock is dashed, the schedule reads
-// from genesis, and the pool section waits. After the first answer an
+// from genesis, and the pools section waits. After the first answer an
 // unreachable Mainnet is an outage.
 //
 // Copyright 2026 Soqucoin Labs Inc.
@@ -60,7 +60,7 @@ class _NetworkPilotScreenState extends ConsumerState<NetworkPilotScreen>
     _revealTrigger.value++;
   }
 
-  /// The pool dot's flare as an update lands; the figures last shown.
+  /// The pools dot's flare as an update lands; the figures last shown.
   late final AnimationController _poolFlare =
       AnimationController(vsync: this, duration: MotionTiming.poolFlare);
   String? _poolKey;
@@ -107,10 +107,10 @@ class _NetworkPilotScreenState extends ConsumerState<NetworkPilotScreen>
   }
 
   Future<void> _refresh() async {
-    // The pool poll restarts; the chain poll ticks on its own period.
-    ref.invalidate(poolWeatherProvider);
+    // The pools poll restarts; the chain poll ticks on its own period.
+    ref.invalidate(poolsWeatherProvider);
     try {
-      await ref.read(poolWeatherProvider.future);
+      await ref.read(poolsWeatherProvider.future);
     } catch (_) {}
     if (mounted) _reveal();
   }
@@ -119,7 +119,7 @@ class _NetworkPilotScreenState extends ConsumerState<NetworkPilotScreen>
   Widget build(BuildContext context) {
     final wallet = ref.watch(walletProvider);
     final chainAsync = ref.watch(chainWeatherProvider);
-    final poolAsync = ref.watch(poolWeatherProvider);
+    final poolsAsync = ref.watch(poolsWeatherProvider);
     final seenLive = ref.watch(mainnetSeenLiveProvider);
 
     // A new block runs the billet round the clock.
@@ -130,13 +130,13 @@ class _NetworkPilotScreenState extends ConsumerState<NetworkPilotScreen>
       // The figures' first arrival: the reveal, once.
       if (!_revealed && (next.asData?.value.reachable ?? false)) _reveal();
     });
-    // An event in the pool's figures: the dot flares once. The key holds
-    // the counts and states the card renders (poolFigureKey); the first
+    // An event in the pools' figures: the dot flares once. The key holds
+    // the pools and the shares the card renders (poolsFigureKey); the first
     // answer of a visit is an arrival.
-    ref.listen(poolWeatherProvider, (previous, next) {
-      final pool = next.asData?.value;
-      if (pool == null || !pool.reachable) return;
-      final key = poolFigureKey(pool);
+    ref.listen(poolsWeatherProvider, (previous, next) {
+      final pools = next.asData?.value;
+      if (pools == null || !pools.reachable) return;
+      final key = poolsFigureKey(pools);
       final before = _poolKey;
       _poolKey = key;
       if (before == null || before == key) return;
@@ -168,8 +168,8 @@ class _NetworkPilotScreenState extends ConsumerState<NetworkPilotScreen>
             ? ('SOQUCOIN · ML-DSA-44 · LIVE', Instrument.signal)
             : ('SOQUCOIN · ML-DSA-44 · OFFLINE', Instrument.faint);
 
-    // The pool reports on the chain it mines: Mainnet once Mainnet is live,
-    // Stagenet until an install has seen Mainnet live.
+    // The pools report on the chain they mine: Mainnet once Mainnet is
+    // live, Stagenet until an install has seen Mainnet live.
     final showPool = live && (mainnet || !seenLive);
 
     return Scaffold(
@@ -240,7 +240,7 @@ class _NetworkPilotScreenState extends ConsumerState<NetworkPilotScreen>
             ),
             // The weather in words: one sentence under the clock.
             _weather(live, loading, clocked, since,
-                showPool ? poolAsync : null),
+                showPool ? poolsAsync : null),
             const SizedBox(height: 8),
             Expanded(
               child: RefreshIndicator(
@@ -316,17 +316,21 @@ class _NetworkPilotScreenState extends ConsumerState<NetworkPilotScreen>
                     ),
                     const InstrumentDivider(),
                     if (showPool)
-                      _poolCard(poolAsync, now)
+                      // The hashrate the shares are read against is
+                      // Mainnet's: on Stagenet (an install that has not seen
+                      // Mainnet live) the rows show the shares alone.
+                      _poolsCard(poolsAsync, mainnet && live ? chain : null)
                     else if (mainnet && !live)
                       _Card(
-                        id: 'pool',
-                        label: 'SOQUPOOL',
+                        id: 'pools',
+                        label: 'POOLS',
                         headline: 'WAITING FOR THE NETWORK',
-                        open: _open.contains('pool'),
-                        onToggle: () => _toggle('pool'),
+                        open: _open.contains('pools'),
+                        onToggle: () => _toggle('pools'),
                         children: [
-                          _note('The pool reports on the chain it mines. Its '
-                              'figures appear here once Mainnet answers.'),
+                          _note('The pools report on the chain they mine. '
+                              'Who found its last day\'s blocks appears '
+                              'here once Mainnet answers.'),
                         ],
                       ),
                   ],
@@ -361,11 +365,12 @@ class _NetworkPilotScreenState extends ConsumerState<NetworkPilotScreen>
       );
 
   /// The weather in words, under the clock: how the chain is doing against
-  /// its target spacing, and how the pool is doing when the pool is shown.
-  /// Each sentence states only what was read; with nothing read, nothing
-  /// (the cards carry the syncing and did-not-answer states themselves).
+  /// its target spacing, and who found the last day's blocks when the pools
+  /// are shown. Each sentence states only what was read; with nothing read,
+  /// nothing (the cards carry the syncing and did-not-answer states
+  /// themselves).
   Widget _weather(bool live, bool loading, bool clocked, Duration since,
-      AsyncValue<PoolWeather>? poolAsync) {
+      AsyncValue<PoolsWeather>? poolsAsync) {
     final parts = <String>[];
     if (live && clocked) {
       final f = since.inMilliseconds / Emission.targetSpacing.inMilliseconds;
@@ -375,17 +380,14 @@ class _NetworkPilotScreenState extends ConsumerState<NetworkPilotScreen>
               ? 'The next block is a little late.'
               : 'The next block is running late.');
     }
-    final pool = poolAsync?.asData?.value;
-    if (pool != null && pool.reachable) {
-      if (pool.overall == 'operational') {
-        final miners = pool.activeMiners;
-        parts.add(miners == null
-            ? 'SOQUPOOL is operational.'
-            : 'SOQUPOOL is operational with ${fmtInt(miners)} '
-                '${miners == 1 ? 'miner' : 'miners'}.');
-      } else {
-        parts.add('SOQUPOOL reports ${pool.overall ?? 'no status'}.');
-      }
+    final pools = poolsAsync?.asData?.value;
+    if (pools != null && pools.reachable && pools.pools.isNotEmpty) {
+      final top = pools.pools.first;
+      final count = pools.pools.length;
+      parts.add(count == 1
+          ? '${top.label} found every block in the last day.'
+          : '$count pools found the last day\'s blocks; ${top.label} '
+              'found ${fmtShare(pools.shareOf(top))}.');
     }
     if (parts.isEmpty) return const SizedBox(height: 2);
     return Padding(
@@ -455,105 +457,72 @@ class _NetworkPilotScreenState extends ConsumerState<NetworkPilotScreen>
     ];
   }
 
-  /// The pool's card: the status beside the label, one line of the figures
-  /// a miner asks for first, the full grid and the latest blocks inside.
-  Widget _poolCard(AsyncValue<PoolWeather> poolAsync, DateTime now) {
-    final pool = poolAsync.asData?.value;
-    if (pool == null || !pool.reachable) {
-      final text = pool == null && poolAsync.isLoading
-          ? 'Reading the pool.'
-          : 'The pool did not answer.';
+  /// The pools' card: how many are mining beside the label, the two
+  /// biggest shares on one line, and inside, every pool with its share and
+  /// the hashrate that share stands for. [chain] is the live chain figure
+  /// the hashrate is taken from, or null while the chain is not read.
+  Widget _poolsCard(AsyncValue<PoolsWeather> poolsAsync, ChainWeather? chain) {
+    final pools = poolsAsync.asData?.value;
+    if (pools == null || !pools.reachable) {
+      final text = pools == null && poolsAsync.isLoading
+          ? 'Reading the explorer.'
+          : 'The explorer did not answer.';
       return _Card(
-        id: 'pool',
-        label: 'SOQUPOOL',
+        id: 'pools',
+        label: 'POOLS',
         headline: text.toUpperCase().replaceAll('.', ''),
-        open: _open.contains('pool'),
-        onToggle: () => _toggle('pool'),
+        open: _open.contains('pools'),
+        onToggle: () => _toggle('pools'),
         children: [_note(text)],
       );
     }
-    String pct(double? v) => v != null && v.isFinite ? '${v.round()}%' : '—';
-    String count(int? v) => v == null ? '—' : fmtInt(v);
-    final eta = pool.nextPayoutEta;
-    final etaShort = eta == null
-        ? '—'
-        : eta.contains(' (')
-            ? eta.substring(0, eta.indexOf(' ('))
-            : eta;
-    final fee = pool.feeRate == null
-        ? '—'
-        : '${(pool.feeRate! * 100).toStringAsFixed(2)}%';
-    final up = pool.overall == 'operational';
-    final headline = [
-      pool.activeMiners == null
-          ? null
-          : '${count(pool.activeMiners)} ${pool.activeMiners == 1 ? 'MINER' : 'MINERS'}',
-      pool.blocksPerHour == null ? null : '${fmtInt(pool.blocksPerHour!)} BLOCKS / HR',
-      pool.poolHashrate == null ? null : fmtHashrate(pool.poolHashrate!),
-    ].whereType<String>().join(' · ');
-    final sub = [
-      pool.luck24h == null ? null : 'LUCK 24 H ${pct(pool.luck24h)}',
-      pool.feeRate == null ? null : 'FEE $fee',
-      eta == null ? null : 'NEXT PAYOUT $etaShort',
-    ].whereType<String>().join(' · ');
+    final list = pools.pools;
+    final count = list.length;
+    final headline = list.isEmpty
+        ? 'NO BLOCKS IN THE LAST DAY'
+        : [
+            for (final p in list.take(2))
+              '${p.label.toUpperCase()} ${fmtShare(pools.shareOf(p))}',
+            if (count > 2) '${fmtInt(count - 2)} MORE',
+          ].join(' · ');
     return _Card(
-      id: 'pool',
-      label: 'SOQUPOOL',
+      id: 'pools',
+      label: 'POOLS',
       trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-        PoolDot(up: up, breath: breath, flare: _poolFlare),
+        PoolDot(up: list.isNotEmpty, breath: breath, flare: _poolFlare),
         const SizedBox(width: 7),
-        Text((pool.overall ?? '—').toUpperCase(),
-            style: Instrument.eyebrow(size: 9.5)),
+        Text('${fmtInt(count)} MINING', style: Instrument.eyebrow(size: 9.5)),
       ]),
-      headline: headline.isEmpty ? '—' : headline,
-      sub: sub.isEmpty ? null : sub,
-      open: _open.contains('pool'),
-      onToggle: () => _toggle('pool'),
-      children: _poolFigures(pool, now, pct, count, etaShort, fee),
+      headline: headline,
+      sub: '${fmtInt(pools.blocks)} BLOCKS · LAST 24 H · MAINNET',
+      open: _open.contains('pools'),
+      onToggle: () => _toggle('pools'),
+      children: _poolRows(pools, chain),
     );
   }
 
-  List<Widget> _poolFigures(PoolWeather pool, DateTime now,
-      String Function(double?) pct, String Function(int?) count,
-      String etaShort, String fee) {
+  List<Widget> _poolRows(PoolsWeather pools, ChainWeather? chain) {
+    // The network hashrate the shares are read against: the node's own
+    // estimate, when the chain is read and the figure is a figure.
+    final network = chain != null && chain.reachable && chain.hashrate > 0
+        ? chain.hashrate
+        : null;
     return [
-      _StatGrid(children: [
-        _Stat('POOL HASHRATE',
-            pool.poolHashrate == null ? '—' : fmtHashrate(pool.poolHashrate!)),
-        _Stat('MINERS', count(pool.activeMiners),
-            sub: pool.workers == null ? null : '${fmtInt(pool.workers!)} WORKERS'),
-        _Stat('BLOCKS · 24 H', count(pool.blocks24h),
-            sub: pool.blocksPerHour == null ? null : '${fmtInt(pool.blocksPerHour!)} / HR'),
-        _Stat('LUCK · 24 H', pct(pool.luck24h),
-            sub: pool.luck7d == null ? null : '7 D ${pct(pool.luck7d)}'),
-        _Stat('ROUND EFFORT', pct(pool.roundEffortPct)),
-        _Stat('NEXT PAYOUT', etaShort),
-        _Stat('FEE', fee, sub: pool.scheme?.toUpperCase()),
-        // Each region by name, the ones that are down marked, so a 2 OF 3
-        // UP says which one is not.
-        _Stat(
-            'REGIONS',
-            pool.regions.isEmpty
-                ? '—'
-                : '${pool.regions.where((r) => r.up).length} OF ${pool.regions.length} UP',
-            sub: pool.regions.isEmpty
-                ? null
-                : pool.regions
-                    .map((r) => r.up
-                        ? r.region.toUpperCase()
-                        : '${r.region.toUpperCase()} DOWN')
-                    .join(' · ')),
-      ]),
-      _note('The pool pays its members to their own addresses. This screen '
-          'reads only what the pool publishes.'),
-      if (pool.latestBlocks.isNotEmpty) ...[
-        const SizedBox(height: 6),
-        const InstrumentDivider(),
-        const _Section('LATEST BLOCKS'),
-        for (final (i, b) in pool.latestBlocks.take(6).indexed)
-          _BlockRow(
-              index: i, height: b.height, ago: fmtAgo(now.difference(b.time))),
-      ],
+      for (final (i, p) in pools.pools.indexed)
+        _PoolRow(
+          index: i,
+          label: p.label.toUpperCase(),
+          share: fmtShare(pools.shareOf(p)),
+          blocks: '${fmtInt(p.blocks)} ${p.blocks == 1 ? 'BLOCK' : 'BLOCKS'}',
+          hashrate: network == null
+              ? null
+              : '~${fmtHashrate(network * pools.shareOf(p))}',
+        ),
+      _note('The explorer groups the last day\'s blocks by the address each '
+          'one pays its reward to, a pool\'s own, and names the pools it '
+          'knows. A pool\'s hashrate is its share of the blocks times the '
+          'network\'s hashrate: an estimate. Pool members are never visible; '
+          'this screen reads only what the chain shows.'),
     ];
   }
 
@@ -565,49 +534,15 @@ class _NetworkPilotScreenState extends ConsumerState<NetworkPilotScreen>
       );
 }
 
-/// The pool figures whose change is an event, as the card renders them:
-/// the status, the miners and the workers, the day's block count, the fee
-/// and the scheme, the regions with their state, and the six latest block
-/// heights. The continuous measurements (the hashrate, luck, the round's
-/// effort, the payout countdown, a block's age) move at every poll by
-/// nature and are not events; a raw change that renders the same is no
-/// change. The poll's read time is not a figure.
-String poolFigureKey(PoolWeather pool) {
-  String count(int? v) => v == null ? '—' : fmtInt(v);
-  final fee = pool.feeRate == null
-      ? '—'
-      : '${(pool.feeRate! * 100).toStringAsFixed(2)}%';
-  return [
-    (pool.overall ?? '—').toUpperCase(),
-    count(pool.activeMiners),
-    count(pool.workers),
-    count(pool.blocks24h),
-    fee,
-    pool.scheme?.toUpperCase() ?? '—',
-    pool.regions
-        .map((r) => r.up
-            ? r.region.toUpperCase()
-            : '${r.region.toUpperCase()} DOWN')
-        .join(' · '),
-    pool.latestBlocks.take(6).map((b) => fmtInt(b.height)).join(' '),
-  ].join('\n');
-}
+/// The pools' figures whose change is an event, as the card renders them:
+/// the pools in order and each one's share as shown, to the percent. The
+/// block counts and the window's heights move at every poll by nature (a
+/// block lands every minute) and are not events; a raw change that renders
+/// the same is no change. The poll's read time is not a figure.
+String poolsFigureKey(PoolsWeather pools) => [
+      for (final p in pools.pools) '${p.label} ${fmtShare(pools.shareOf(p))}',
+    ].join('\n');
 
-/// A sub-heading inside a card (the latest blocks under the pool's figures).
-class _Section extends StatelessWidget {
-  final String label;
-  const _Section(this.label);
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(top: 14, bottom: 8),
-        child: Text(label, style: Instrument.eyebrow(size: 10)),
-      );
-}
-
-/// One card of the weather: the eyebrow label with an optional status beside
-/// it, a one-line summary and an optional second line, always visible; the
-/// full figures under them on a tap, closed again on the next. The chevron
-/// turns with the state; under reduced motion the card opens at once.
 class _Card extends StatelessWidget {
   final String id;
   final String label;
@@ -840,17 +775,32 @@ class _Stat extends StatelessWidget {
   }
 }
 
-class _BlockRow extends StatelessWidget {
+/// One pool: its label and the hashrate its share stands for on the left,
+/// its share and its block count on the right.
+class _PoolRow extends StatelessWidget {
   final int index;
-  final int height;
-  final String ago;
-  const _BlockRow(
-      {required this.index, required this.height, required this.ago});
+  final String label;
+  final String share;
+  final String blocks;
+  final String? hashrate;
+  const _PoolRow({
+    required this.index,
+    required this.label,
+    required this.share,
+    required this.blocks,
+    this.hashrate,
+  });
   @override
   Widget build(BuildContext context) {
-    // Keyed by position: a feed may repeat a height, and a key must not.
+    // Keyed by position: two groups may render the same label, and a key
+    // must not repeat.
     final section = _CardScope.of(context) ?? '';
-    final id = '$section/block $index';
+    final id = '$section/pool $index';
+    const faint = TextStyle(
+        color: Instrument.faint,
+        fontSize: 9.5,
+        fontFamily: kMono,
+        letterSpacing: 0.4);
     return ScanRowBox(
       id: id,
       section: section,
@@ -858,26 +808,51 @@ class _BlockRow extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 7),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            SizedBox(
-                width: 14,
-                child: Center(
-                    child: instrumentDot(
-                        Instrument.signal.withValues(alpha: 0.8), size: 4))),
+            Padding(
+              padding: const EdgeInsets.only(top: 7),
+              child: SizedBox(
+                  width: 14,
+                  child: Center(
+                      child: instrumentDot(
+                          Instrument.signal.withValues(alpha: 0.8), size: 4))),
+            ),
             const SizedBox(width: 10),
-            ScanLit(
-                id: id,
-                text: fmtInt(height),
-                style: const TextStyle(fontSize: 13.5, fontFamily: kMono),
-                color: Instrument.readout,
-                litColor: Instrument.leadEdge),
-            const Spacer(),
-            Text(ago,
-                style: const TextStyle(
-                    color: Instrument.faint,
-                    fontSize: 10.5,
-                    fontFamily: kMono,
-                    letterSpacing: 0.6)),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ScanLit(
+                      id: id,
+                      text: label,
+                      style: const TextStyle(fontSize: 13.5, fontFamily: kMono),
+                      color: Instrument.readout,
+                      litColor: Instrument.leadEdge),
+                  if (hashrate != null) ...[
+                    const SizedBox(height: 3),
+                    Text(hashrate!, style: faint),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                ScanLit(
+                    id: id,
+                    text: share,
+                    style: const TextStyle(
+                        fontSize: 13.5,
+                        fontFamily: kMono,
+                        fontWeight: FontWeight.w500),
+                    color: Instrument.readout,
+                    litColor: Instrument.leadEdge),
+                const SizedBox(height: 3),
+                Text(blocks, style: faint),
+              ],
+            ),
           ],
         ),
       )));

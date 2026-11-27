@@ -34,13 +34,14 @@ final chainWeatherProvider = StreamProvider<ChainWeather>((ref) async* {
 /// The chain poll's period; a figure older than this is stale.
 const Duration pollPeriod = Duration(seconds: 30);
 
-/// The pool's public weather, polled every minute while the Network tab is
-/// shown and disposed when it is not, so each visit starts with a fresh poll.
-/// Not tied to the wallet's network: the pool reports on the chain it mines.
-final poolWeatherProvider =
-    StreamProvider.autoDispose<PoolWeather>((ref) async* {
-  yield await fetchPoolWeather();
+/// Who found the last day's blocks, read from the public explorer every
+/// minute while the Network tab is shown and disposed when it is not, so each
+/// visit starts with a fresh poll. Not tied to the wallet's network: the
+/// pools report on Mainnet.
+final poolsWeatherProvider =
+    StreamProvider.autoDispose<PoolsWeather>((ref) async* {
+  yield await fetchPoolsWeather();
   await for (final _ in Stream.periodic(const Duration(seconds: 60))) {
-    yield await fetchPoolWeather();
+    yield await fetchPoolsWeather();
   }
 });

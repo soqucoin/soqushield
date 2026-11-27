@@ -1,7 +1,8 @@
-// The network's weather: what the chain and the pool report right now, read
-// through public endpoints only. Nothing here holds a key, a token or an
-// account; the figures are the ones anyone can read from the node's public
-// RPC proxy and from the pool's public API, and the app only shows them.
+// The network's weather: what the chain reports right now and who found its
+// last day's blocks, read through public endpoints only. Nothing here holds
+// a key, a token or an account; the figures are the ones anyone can read
+// from the node's public RPC proxy and from the public explorer, and the app
+// only shows them.
 //
 // Copyright 2026 Soqucoin Labs Inc.
 
@@ -96,188 +97,197 @@ Future<ChainWeather> fetchChainWeather(SoqNetwork network,
   }
 }
 
-/// One region of the pool's stratum front.
-class PoolRegion {
-  final String region;
-  final bool up;
-  final int workers;
-  const PoolRegion({required this.region, required this.up, required this.workers});
+/// One pool's share of the window's blocks, as the public explorer groups
+/// them: the pool's name when the explorer knows the address the pool pays
+/// its block reward to, else that address itself. The address is the pool's
+/// own, never a member's: a pool pays its members later, from its own
+/// wallet, and nothing here reads a member.
+class PoolShare {
+  /// The explorer's name for the pool, or empty when it has none.
+  final String name;
+
+  /// The payout address the explorer grouped by, when it has no name for it.
+  final String? address;
+  final int blocks;
+  const PoolShare({required this.name, this.address, required this.blocks});
+
+  /// The name, or `sq1pyvjd6u…gmgyul` for a pool the explorer has no name
+  /// for.
+  String get label {
+    final a = address;
+    if (a == null) return name;
+    if (a.length <= 20) return a;
+    return '${a.substring(0, 10)}…${a.substring(a.length - 6)}';
+  }
 }
 
-/// One block the pool found: its height and when. The finder is the pool's
-/// business, not this app's, and is never read.
-class PoolBlock {
-  final int height;
-  final DateTime time;
-  const PoolBlock({required this.height, required this.time});
-}
-
-/// What the pool reports publicly. Any field may be null when its endpoint
-/// did not answer; [reachable] is false only when none did.
-class PoolWeather {
+/// Who found the last day's blocks on Mainnet, read from the public
+/// explorer's mining summary over [kPoolsWindow] blocks back from the tip.
+/// [reachable] false when the explorer did not answer; [pools] is then
+/// empty.
+class PoolsWeather {
   final bool reachable;
 
-  /// Hashes per second, the pool's own stratum rate.
-  final double? poolHashrate;
-  final int? activeMiners;
-  final int? workers;
-  final int? blocksPerHour;
-  final int? blocks24h;
-  final int? blocks7d;
-  final double? luck24h;
-  final double? luck7d;
-  final double? roundEffortPct;
-  final String? overall; // 'operational' and the like
-  final List<PoolRegion> regions;
-  final String? nextPayoutEta;
-  final double? feeRate; // 0.015 = 1.50 percent
-  final String? scheme; // 'PPLNS'
-  final List<PoolBlock> latestBlocks;
+  /// The window's first and last height, from the explorer's tip.
+  final int startHeight;
+  final int endHeight;
+
+  /// The blocks the summary grouped, the sum of the pools' counts.
+  final int blocks;
+
+  /// Most blocks first; a tie by label.
+  final List<PoolShare> pools;
   final DateTime fetchedAt;
 
-  const PoolWeather({
+  const PoolsWeather({
     required this.reachable,
-    this.poolHashrate,
-    this.activeMiners,
-    this.workers,
-    this.blocksPerHour,
-    this.blocks24h,
-    this.blocks7d,
-    this.luck24h,
-    this.luck7d,
-    this.roundEffortPct,
-    this.overall,
-    this.regions = const [],
-    this.nextPayoutEta,
-    this.feeRate,
-    this.scheme,
-    this.latestBlocks = const [],
+    this.startHeight = 0,
+    this.endHeight = 0,
+    this.blocks = 0,
+    this.pools = const [],
     required this.fetchedAt,
   });
+
+  /// A pool's share of the window's blocks, 0 to 1.
+  double shareOf(PoolShare pool) =>
+      blocks <= 0 ? 0 : (pool.blocks / blocks).clamp(0.0, 1.0);
 }
 
-/// The pool's public API host. The only pool host this app talks to.
-const String kPoolApiHost = 'api.soqupool.com';
+/// The window the pools are read over: one day of blocks at the chain's
+/// sixty-second target.
+const int kPoolsWindow = 1440;
 
-/// Four public GETs on the pool's API, each failing on its own. The finder of
-/// a block and anything about an account is never read.
-Future<PoolWeather> fetchPoolWeather({http.Client? client}) async {
+/// The most pools kept from one answer, and the longest name kept.
+const int _maxPools = 24;
+const int _maxNameLength = 40;
+
+/// Two public GETs on the Mainnet explorer, the host the network endpoints
+/// name: the tip height, then the mining summary over the day of blocks
+/// ending at it. The explorer groups the blocks by the address each
+/// coinbase pays, or by the pool's name when it knows the address; this
+/// reader keeps the names, the addresses and the counts and nothing else.
+/// The pools report on Mainnet whatever network the wallet is on. Any
+/// failure, at either call, yields an unreachable answer.
+Future<PoolsWeather> fetchPoolsWeather({http.Client? client}) async {
   final c = client ?? http.Client();
-  Future<Map<String, dynamic>?> get(String path) async {
-    try {
-      final r = await c
-          .get(Uri.https(kPoolApiHost, path))
-          .timeout(const Duration(seconds: 8));
-      if (r.statusCode != 200) return null;
-      final d = jsonDecode(r.body);
-      return d is Map<String, dynamic> ? d : null;
-    } catch (e) {
-      debugPrint('WEATHER: pool $path failed: $e');
-      return null;
-    }
-  }
-
+  final explorer = SoqNetwork.mainnet.explorerUrl;
   try {
-    final results = await Future.wait(
-        [get('/pool'), get('/pool/luck'), get('/pool/status'), get('/pool/terms')]);
-    return _parsePool(results);
+    if (explorer == null) {
+      return PoolsWeather(reachable: false, fetchedAt: DateTime.now());
+    }
+    final origin = Uri.parse(explorer);
+    final tipAnswer = await c
+        .get(origin.replace(path: '/api/blocks/tip/height'))
+        .timeout(const Duration(seconds: 8));
+    final tip = tipAnswer.statusCode == 200
+        ? int.tryParse(tipAnswer.body.trim())
+        : null;
+    if (tip == null || tip < 0) {
+      return PoolsWeather(reachable: false, fetchedAt: DateTime.now());
+    }
+    final start = math.max(0, tip - kPoolsWindow + 1);
+    final answer = await c
+        .get(origin.replace(path: '/api/mining/miner-summary', queryParameters: {
+          'startHeight': '$start',
+          'endHeight': '$tip',
+        }))
+        .timeout(const Duration(seconds: 25));
+    if (answer.statusCode != 200) {
+      return PoolsWeather(reachable: false, fetchedAt: DateTime.now());
+    }
+    // Read as UTF-8 whatever charset the answer claims: a pool's name is
+    // text, and a wrong label on the answer must not drop the day's pools.
+    final body = jsonDecode(utf8.decode(answer.bodyBytes, allowMalformed: true));
+    if (body is! Map<String, dynamic>) {
+      return PoolsWeather(reachable: false, fetchedAt: DateTime.now());
+    }
+    return _parsePools(body, start, tip);
   } catch (e) {
     // No answer, however shaped, stops the poll: a body the reader cannot
-    // take reads as the pool not answering.
-    debugPrint('WEATHER: pool unreadable: $e');
-    return PoolWeather(reachable: false, fetchedAt: DateTime.now());
+    // take reads as the explorer not answering.
+    debugPrint('WEATHER: pools unreadable: $e');
+    return PoolsWeather(reachable: false, fetchedAt: DateTime.now());
   } finally {
     if (client == null) c.close();
   }
 }
 
-PoolWeather _parsePool(List<Map<String, dynamic>?> results) {
-  {
-    final pool = results[0], luck = results[1], status = results[2], terms = results[3];
-    final now = DateTime.now();
-    if (pool == null && luck == null && status == null && terms == null) {
-      return PoolWeather(reachable: false, fetchedAt: now);
+/// The explorer's own prefix on a group it could only name by its address.
+const String _addressOnly = 'address-only:';
+
+/// The explorer's `miners` map: one entry per group, keyed by the pool's
+/// name or by `address-only:` and the address, each with the heights of
+/// its blocks. A group with no blocks, or with a key that reads as nothing,
+/// is dropped; the rest are sorted and capped. The explorer's own counts
+/// and fees are not read: the count is the heights' count.
+PoolsWeather _parsePools(Map<String, dynamic> body, int start, int end) {
+  final now = DateTime.now();
+  final miners = body['miners'];
+  final pools = <PoolShare>[];
+  if (miners is Map) {
+    for (final entry in miners.entries) {
+      final key = entry.key;
+      final group = entry.value;
+      if (key is! String || group is! Map) continue;
+      final heights = group['blocks'];
+      if (heights is! List || heights.isEmpty) continue;
+      if (key.startsWith(_addressOnly)) {
+        final address = key.substring(_addressOnly.length);
+        if (_looksLikeAddress(address)) {
+          pools.add(PoolShare(name: '', address: address, blocks: heights.length));
+          continue;
+        }
+      }
+      final name = _cleanName(key);
+      if (name.isEmpty) continue;
+      pools.add(PoolShare(name: name, blocks: heights.length));
     }
-    final rate = pool?['PoolHashRate'];
-    final round = luck?['currentRound'];
-    return PoolWeather(
-      reachable: true,
-      poolHashrate: rate is Map ? _double(rate['Raw']) : null,
-      activeMiners: _int(pool?['ActiveMiners']),
-      workers: _int(pool?['Workers']),
-      blocksPerHour: _int(pool?['BlocksPerHour']),
-      blocks24h: _int(luck?['blocksLast24h']),
-      blocks7d: _int(luck?['blocksLast7d']),
-      luck24h: _double(luck?['luck24h']),
-      luck7d: _double(luck?['luck7d']),
-      roundEffortPct: round is Map ? _double(round['effortPct']) : null,
-      overall: _str(status?['overall']),
-      regions: _regions(status?['nodes']),
-      nextPayoutEta: (status?['payouts'] is Map)
-          ? _str((status!['payouts'] as Map)['next_eta'])
-          : null,
-      feeRate: _double(terms?['fee_rate']),
-      scheme: _str(terms?['scheme']),
-      latestBlocks: _blocks(pool?['LatestBlocks'], now),
-      fetchedAt: now,
-    );
   }
+  pools.sort((a, b) {
+    final byBlocks = b.blocks.compareTo(a.blocks);
+    return byBlocks != 0 ? byBlocks : a.label.compareTo(b.label);
+  });
+  final kept = pools.take(_maxPools).toList();
+  var total = 0;
+  for (final p in kept) {
+    total += p.blocks;
+  }
+  return PoolsWeather(
+    reachable: true,
+    startHeight: start,
+    endHeight: end,
+    blocks: total,
+    pools: kept,
+    fetchedAt: now,
+  );
 }
 
-List<PoolRegion> _regions(Object? raw) {
-  if (raw is! List) return const [];
-  final out = <PoolRegion>[];
-  for (final n in raw) {
-    if (n is! Map) continue;
-    final region = n['region'];
-    if (region is! String) continue;
-    out.add(PoolRegion(
-      region: region,
-      up: n['status'] == 'up',
-      workers: _int(n['workers']) ?? 0,
-    ));
-  }
-  return out;
-}
+/// A Mainnet payout address as the explorer writes one: the bech32m
+/// alphabet, lower case, of a plausible length.
+bool _looksLikeAddress(String s) =>
+    s.length >= 14 &&
+    s.length <= 90 &&
+    RegExp(r'^[a-z0-9]+$').hasMatch(s);
 
-/// The chain this app shows, as the pool's feed names it.
-const String _poolChainName = 'soqucoin';
-
-/// The pool's rows carry `created` as `2026-10-06 04:08:09.059411 +0000 UTC`
-/// and `minutesAgo`; the first is read, the second is the fallback. The feed
-/// lists every chain the pool mines in one list (Dogecoin rows sit between
-/// Soqucoin rows live), so a row is kept only when it names this chain.
-List<PoolBlock> _blocks(Object? raw, DateTime now) {
-  if (raw is! List) return const [];
-  final out = <PoolBlock>[];
-  for (final b in raw) {
-    if (b is! Map) continue;
-    final chain = b['chain'];
-    if (chain is! String || chain.toLowerCase() != _poolChainName) continue;
-    final height = _int(b['blockHeight']);
-    if (height == null) continue;
-    DateTime? time;
-    final created = b['created'];
-    if (created is String && created.length >= 19) {
-      time = DateTime.tryParse('${created.substring(0, 10)}T${created.substring(11, 19)}Z');
-    }
-    final ago = _int(b['minutesAgo']);
-    // A row with no usable time is dropped; a fallback age past a year is
-    // not a recent block and is dropped too.
-    time ??= (ago == null || ago < 0 || ago > 525600)
-        ? null
-        : now.subtract(Duration(minutes: ago));
-    if (time == null) continue;
-    out.add(PoolBlock(height: height, time: time));
-  }
-  return out;
+/// A name with its control and invisible characters removed, trimmed and
+/// cut to [_maxNameLength]: a hostile host's name renders as text, no
+/// longer than a line.
+String _cleanName(String raw) {
+  final cleaned = raw
+      .replaceAll(
+          RegExp('[\\u0000-\\u001F\\u007F-\\u009F\\u200B-\\u200F'
+              '\\u202A-\\u202E\\u2066-\\u2069\\uFEFF]'),
+          '')
+      .trim();
+  return cleaned.length <= _maxNameLength
+      ? cleaned
+      : cleaned.substring(0, _maxNameLength);
 }
 
 /// Typed accessors: anything but the expected shape reads as absent, and a
 /// number that is not finite (a hostile host's `1e400`) reads as absent too.
 int? _int(Object? v) => v is num && v.isFinite ? v.toInt() : null;
 double? _double(Object? v) => v is num && v.isFinite ? v.toDouble() : null;
-String? _str(Object? v) => v is String ? v : null;
 
 // ── formatting, one voice for the figures ──
 
@@ -293,6 +303,15 @@ String fmtHashrate(double hps) {
   }
   final digits = i == 0 ? 0 : (v < 10 ? 2 : 1);
   return '${v.toStringAsFixed(digits)} ${units[i]}';
+}
+
+/// `72%`, `9%`, and `<1%` for a share that rounds to nothing but is not
+/// nothing.
+String fmtShare(double share) {
+  if (!share.isFinite || share < 0) return '—';
+  final pct = (share * 100).round();
+  if (pct == 0 && share > 0) return '<1%';
+  return '$pct%';
 }
 
 /// `407.8`, `97.0M`, `1.2k`.

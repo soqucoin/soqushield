@@ -182,7 +182,7 @@ void main() {
     expect(find.textContaining('sq1'), findsWidgets);
     await mark(t, 'home-mainnet');
 
-    // ── network on Mainnet: the cards closed with their lines, the pool
+    // ── network on Mainnet: the cards closed with their lines, the pools
     // card waiting when offline; the emission card opened ──
     await tapText(t, 'Network');
     await until(t, settled, limit: const Duration(seconds: 40));
@@ -191,16 +191,22 @@ void main() {
       await until(t, find.textContaining('Connecting to Mainnet'), limit: const Duration(seconds: 40));
       await until(t, find.text('WAITING FOR THE NETWORK'));
     }
-    // The pool card belongs to Mainnet now. It is the card that is
-    // asserted, not its status: `OPERATIONAL` is whatever the pool
-    // publishes at the moment the drive runs, and a drive that reddens
-    // because the pool is briefly degraded reports on the pool, not on
-    // this build.
+    // The pools card belongs to Mainnet now. It is the card that is
+    // asserted, not its figures: who found the day's blocks is whatever the
+    // explorer reads at the moment the drive runs, and a drive that reddens
+    // because the explorer is briefly down reports on the explorer, not on
+    // this build. Open, the card carries its note in either state.
     if (!offline) {
-      await until(t, find.text('SOQUPOOL'), limit: const Duration(seconds: 60));
-      await t.tap(find.byKey(const ValueKey('card pool')));
-      await until(t, find.text('POOL HASHRATE'));
-      await t.tap(find.byKey(const ValueKey('card pool')));
+      await until(t, find.text('POOLS'), limit: const Duration(seconds: 60));
+      await t.tap(find.byKey(const ValueKey('card pools')));
+      await until(
+          t,
+          find.byWidgetPredicate((w) =>
+              w is Text &&
+              ((w.data?.contains('reads only what the chain shows') ?? false) ||
+                  (w.data?.contains('explorer did not answer') ?? false))),
+          limit: const Duration(seconds: 40));
+      await t.tap(find.byKey(const ValueKey('card pools')));
     }
     // ⛔ The emission card reads FROM GENESIS only while Mainnet is not
     // answering: the screen passes `fromGenesis: mainnet && !live`, so a
@@ -251,26 +257,26 @@ void main() {
     await mark(t, 'home-stagenet');
 
     // ── network on Stagenet: the block clock live, the weather in words,
-    // the pool's status on its closed card, then the pool card opened ──
-    // (the clock's own labels are painted, not widgets; the status line, the
-    // card labels and the pool's state are texts)
+    // the pools card closed or absent ──
+    // (the clock's own labels are painted, not widgets; the status line and
+    // the card labels are texts)
     await tapText(t, 'Network');
     await until(t, find.text('CHAIN · STAGENET'));
     await until(t, find.text('SOQUCOIN · ML-DSA-44 · LIVE'), limit: const Duration(seconds: 60));
-    // ⛔ NO POOL CARD HERE once Mainnet has answered. showPool is
+    // ⛔ NO POOLS CARD HERE once Mainnet has answered. showPool is
     // `live && (mainnet || !seenLive)`, so once this install has seen Mainnet
-    // answer the pool is shown on Mainnet alone — it reports on the chain it
-    // mines, and its figures beside a Stagenet height would read as
+    // answer the pools are shown on Mainnet alone — they report on the chain
+    // they mine, and their figures beside a Stagenet height would read as
     // Stagenet's. A fresh install that has never reached Mainnet still shows
-    // it here, by design, so the drive reads the same flag the screen reads.
+    // them here, by design, so the drive reads the same flag the screen reads.
     final seenLive = ProviderScope.containerOf(
             t.element(find.byType(SoquShieldApp)))
         .read(mainnetSeenLiveProvider);
     if (seenLive) {
-      expect(find.text('SOQUPOOL'), findsNothing,
-          reason: 'the pool reports on Mainnet, not on the chain being viewed');
+      expect(find.text('POOLS'), findsNothing,
+          reason: 'the pools report on Mainnet, not on the chain being viewed');
     } else {
-      await until(t, find.text('SOQUPOOL'), limit: const Duration(seconds: 60));
+      await until(t, find.text('POOLS'), limit: const Duration(seconds: 60));
     }
     await mark(t, 'network-stagenet');
     await tapText(t, 'Wallet');

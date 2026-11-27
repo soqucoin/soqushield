@@ -65,43 +65,38 @@ ChainWeather _chain(
       fetchedAt: DateTime.now(),
     );
 
-PoolWeather _pool({
+const _lpAddress =
+    'sq1psjvu5zemy90t56ms25ql6vnpdawt9pga4lpvkr8gaapysukrxhgszyfc2n';
+
+/// The last day's pools as the reader gives them: three, one of them known
+/// to the explorer by address only, with [f2], [lp] and [luxx] blocks each.
+PoolsWeather _pools({
   DateTime? at,
-  int miners = 5,
-  int workers = 11,
-  int blocks24h = 1324,
-  double hashrate = 1.3e9,
-  double luck = 98,
-  double? effort = 41.7,
-  String eta = '3h 51m',
-  double fee = 0.015,
-  String overall = 'operational',
-  List<PoolRegion> regions = const [],
-  List<PoolBlock> latest = const [],
+  int f2 = 104,
+  int lp = 16,
+  int luxx = 13,
+  int start = 64458,
+  int end = 65897,
+  String f2Name = 'F2Pool',
 }) =>
-    PoolWeather(
+    PoolsWeather(
       reachable: true,
+      startHeight: start,
+      endHeight: end,
+      blocks: f2 + lp + luxx,
+      pools: [
+        PoolShare(name: f2Name, blocks: f2),
+        PoolShare(name: '', address: _lpAddress, blocks: lp),
+        PoolShare(name: 'LuxxPool', blocks: luxx),
+      ],
       fetchedAt: at ?? DateTime.now(),
-      poolHashrate: hashrate,
-      activeMiners: miners,
-      workers: workers,
-      blocksPerHour: 52,
-      blocks24h: blocks24h,
-      luck24h: luck,
-      roundEffortPct: effort,
-      overall: overall,
-      regions: regions,
-      nextPayoutEta: eta,
-      feeRate: fee,
-      scheme: 'PPLNS',
-      latestBlocks: latest,
     );
 
-/// The screen with the chain poll fed by [chain] and the pool poll by
-/// [pool], under the platform's reduced-motion setting when [reduced].
+/// The screen with the chain poll fed by [chain] and the pools poll by
+/// [pools], under the platform's reduced-motion setting when [reduced].
 Widget _screen({
   required Stream<ChainWeather> chain,
-  Stream<PoolWeather> Function()? pool,
+  Stream<PoolsWeather> Function()? pools,
   bool reduced = false,
 }) =>
     ProviderScope(
@@ -113,8 +108,8 @@ Widget _screen({
         walletProvider.overrideWith(() => MockWalletNotifier(_wallet())),
         mainnetSeenLiveProvider.overrideWith(_SeenLive.new),
         chainWeatherProvider.overrideWith((ref) => chain),
-        poolWeatherProvider.overrideWith(
-            (ref) => pool == null ? const Stream<PoolWeather>.empty() : pool()),
+        poolsWeatherProvider.overrideWith(
+            (ref) => pools == null ? const Stream<PoolsWeather>.empty() : pools()),
       ],
       child: MaterialApp(
         home: Builder(
@@ -262,7 +257,7 @@ void main() {
       final feed = StreamController<ChainWeather>();
       addTearDown(feed.close);
       await tester.pumpWidget(
-          _screen(chain: feed.stream, pool: () => Stream.value(_pool())));
+          _screen(chain: feed.stream, pools: () => Stream.value(_pools())));
       await tester.pump();
       expect(_scan(tester).reveal, lessThan(0), reason: 'nothing arrived');
 
@@ -314,7 +309,7 @@ void main() {
         'glides to rest on release', (tester) async {
       _surface(tester);
       await tester.pumpWidget(_screen(
-          chain: Stream.value(_chain()), pool: () => Stream.value(_pool())));
+          chain: Stream.value(_chain()), pools: () => Stream.value(_pools())));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 1400)); // the reveal
       expect(_scan(tester).lineY, isNull);
@@ -388,7 +383,7 @@ void main() {
       final fingerY = _scan(tester).lineY!;
       final overlay = tester.getRect(find.byType(ScanOverlay));
       final rows = <Rect>[
-        for (final id in ['chain', 'emission', 'pool'])
+        for (final id in ['chain', 'emission', 'pools'])
           tester.getRect(find.byKey(ValueKey('card $id'))),
         for (final label in ['HEIGHT', 'LAST BLOCK', 'HASHRATE', 'DIFFICULTY', 'MEMPOOL', 'PEERS'])
           tester.getRect(find
@@ -424,7 +419,7 @@ void main() {
       final feed = StreamController<ChainWeather>();
       addTearDown(feed.close);
       await tester.pumpWidget(
-          _screen(chain: feed.stream, pool: () => Stream.value(_pool())));
+          _screen(chain: feed.stream, pools: () => Stream.value(_pools())));
       await tester.pump();
       final at = tester.getCenter(find.byKey(const ValueKey('card chain')));
       final gesture = await tester.startGesture(at);
@@ -448,7 +443,7 @@ void main() {
         (tester) async {
       _surface(tester);
       await tester.pumpWidget(_screen(
-          chain: Stream.value(_chain()), pool: () => Stream.value(_pool())));
+          chain: Stream.value(_chain()), pools: () => Stream.value(_pools())));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 1400));
       final overlayTop = tester.getTopLeft(find.byType(ScanOverlay)).dy;
@@ -479,7 +474,7 @@ void main() {
       final feed = StreamController<ChainWeather>();
       addTearDown(feed.close);
       await tester.pumpWidget(
-          _screen(chain: feed.stream, pool: () => Stream.value(_pool())));
+          _screen(chain: feed.stream, pools: () => Stream.value(_pools())));
       await tester.pump();
       // A held finger, released: the glide runs.
       final at = tester.getCenter(find.byKey(const ValueKey('card chain')));
@@ -512,10 +507,10 @@ void main() {
         (tester) async {
       _surface(tester);
       await tester.pumpWidget(_screen(
-          chain: Stream.value(_chain()), pool: () => Stream.value(_pool())));
+          chain: Stream.value(_chain()), pools: () => Stream.value(_pools())));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 1400));
-      for (final id in ['chain', 'emission', 'pool']) {
+      for (final id in ['chain', 'emission', 'pools']) {
         await tester.tap(find.byKey(ValueKey('card $id')));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 300));
@@ -534,7 +529,7 @@ void main() {
         'goes at once on release', (tester) async {
       _surface(tester);
       await tester.pumpWidget(_screen(
-          chain: Stream.value(_chain()), pool: () => Stream.value(_pool()), reduced: true));
+          chain: Stream.value(_chain()), pools: () => Stream.value(_pools()), reduced: true));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
       final overlayTop = tester.getTopLeft(find.byType(ScanOverlay)).dy;
@@ -556,14 +551,14 @@ void main() {
         'never on a poll that repeats them with a new read time',
         (tester) async {
       _surface(tester);
-      final pool = StreamController<PoolWeather>();
+      final pool = StreamController<PoolsWeather>();
       addTearDown(pool.close);
       await tester.pumpWidget(
-          _screen(chain: Stream.value(_chain()), pool: () => pool.stream));
+          _screen(chain: Stream.value(_chain()), pools: () => pool.stream));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
       final first = DateTime(2026, 10, 8, 12);
-      pool.add(_pool(at: first));
+      pool.add(_pools(at: first));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
       expect(_dot(tester).up, isTrue);
@@ -571,13 +566,13 @@ void main() {
           reason: 'the first answer is an arrival');
 
       // The production poll: the same figures a minute later.
-      pool.add(_pool(at: first.add(const Duration(seconds: 60))));
+      pool.add(_pools(at: first.add(const Duration(seconds: 60))));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
       expect(_dot(tester).flareValue, lessThan(0),
           reason: 'a repeated figure with a new read time is no update');
 
-      pool.add(_pool(at: first.add(const Duration(seconds: 120)), miners: 6));
+      pool.add(_pools(at: first.add(const Duration(seconds: 120)), f2: 120));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
       expect(_dot(tester).flareValue, inInclusiveRange(0.0, 1.0),
@@ -585,7 +580,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 1200));
       expect(_dot(tester).flareValue, lessThan(0), reason: 'at rest');
 
-      pool.add(_pool(at: first.add(const Duration(seconds: 180)), miners: 6));
+      pool.add(_pools(at: first.add(const Duration(seconds: 180)), f2: 120));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
       expect(_dot(tester).flareValue, lessThan(0), reason: 'repeated again');
@@ -593,84 +588,53 @@ void main() {
     });
 
     test(
-        'the figure key ignores the read time, the continuous measurements and '
-        'a raw change that renders the same, and changes with each count and '
-        'state', () {
-      final a = poolFigureKey(_pool(at: DateTime(2026, 10, 8, 12)));
-      expect(poolFigureKey(_pool(at: DateTime(2026, 10, 8, 13))), a,
+        'the figure key ignores the read time, the window moving on and counts '
+        'that render the same shares, and changes with a share, a name and '
+        'the order', () {
+      final a = poolsFigureKey(_pools(at: DateTime(2026, 10, 8, 12)));
+      expect(poolsFigureKey(_pools(at: DateTime(2026, 10, 8, 13))), a,
           reason: 'the read time');
-      expect(poolFigureKey(_pool(hashrate: 1.31e9)), a, reason: 'hashrate');
-      expect(poolFigureKey(_pool(luck: 103.4)), a, reason: 'luck');
-      expect(poolFigureKey(_pool(effort: 58.2)), a, reason: 'round effort');
-      expect(poolFigureKey(_pool(eta: '3h 50m')), a, reason: 'the countdown');
-      expect(poolFigureKey(_pool(fee: 0.015004)), a,
-          reason: 'a fee that renders as 1.50% still');
-      final t0 = DateTime(2026, 10, 8, 12);
-      final one = _pool(latest: [PoolBlock(height: 112100, time: t0)]);
-      final aged = _pool(latest: [
-        PoolBlock(height: 112100, time: t0.add(const Duration(minutes: 5)))
-      ]);
-      expect(poolFigureKey(aged), poolFigureKey(one), reason: 'a block\'s age');
-      final seventh = _pool(latest: [
-        for (var i = 0; i < 7; i++) PoolBlock(height: 112100 - i, time: t0)
-      ]);
-      final seventhChanged = _pool(latest: [
-        for (var i = 0; i < 6; i++) PoolBlock(height: 112100 - i, time: t0),
-        PoolBlock(height: 100, time: t0),
-      ]);
-      expect(poolFigureKey(seventhChanged), poolFigureKey(seventh),
-          reason: 'the card shows six blocks');
-
-      expect(poolFigureKey(_pool(miners: 6)), isNot(a), reason: 'miners');
-      expect(poolFigureKey(_pool(workers: 12)), isNot(a), reason: 'workers');
-      expect(poolFigureKey(_pool(blocks24h: 1325)), isNot(a),
-          reason: 'the day\'s blocks');
-      expect(poolFigureKey(_pool(fee: 0.0169)), isNot(a), reason: 'the fee');
-      expect(poolFigureKey(_pool(overall: 'degraded')), isNot(a),
-          reason: 'the status');
-      expect(
-          poolFigureKey(_pool(regions: const [
-            PoolRegion(region: 'us-west', up: true, workers: 4)
-          ])),
-          isNot(poolFigureKey(_pool(regions: const [
-            PoolRegion(region: 'us-west', up: false, workers: 4)
-          ]))),
-          reason: 'a region\'s state');
-      expect(poolFigureKey(_pool(latest: [PoolBlock(height: 112101, time: t0)])),
-          isNot(poolFigureKey(one)),
-          reason: 'a new block');
+      expect(poolsFigureKey(_pools(start: 64459, end: 65898)), a,
+          reason: 'the window moving on a block');
+      expect(poolsFigureKey(_pools(f2: 1040, lp: 160, luxx: 130)), a,
+          reason: 'ten times the blocks, the same shares');
+      expect(poolsFigureKey(_pools(f2: 120)), isNot(a), reason: 'a share');
+      expect(poolsFigureKey(_pools(f2Name: 'F2POOL')), isNot(a), reason: 'a name');
+      final reordered = PoolsWeather(
+        reachable: true,
+        blocks: 133,
+        pools: const [
+          PoolShare(name: 'LuxxPool', blocks: 13),
+          PoolShare(name: '', address: _lpAddress, blocks: 16),
+          PoolShare(name: 'F2Pool', blocks: 104),
+        ],
+        fetchedAt: DateTime.now(),
+      );
+      expect(poolsFigureKey(reordered), isNot(a), reason: 'the order');
+      expect(poolsFigureKey(PoolsWeather(reachable: true, fetchedAt: DateTime.now())),
+          isEmpty, reason: 'no pools, no figures');
     });
 
-    testWidgets('a duplicated height in the latest blocks keys two rows',
+    testWidgets('two groups that render the same label key two rows',
         (tester) async {
       _surface(tester);
-      final twice = PoolWeather(
+      final twice = PoolsWeather(
         reachable: true,
-        fetchedAt: DateTime.now(),
-        poolHashrate: 1.3e9,
-        activeMiners: 5,
-        workers: 11,
-        blocksPerHour: 52,
-        blocks24h: 1324,
-        luck24h: 98,
-        overall: 'operational',
-        regions: const [],
-        nextPayoutEta: '3h 51m',
-        feeRate: 0.015,
-        scheme: 'PPLNS',
-        latestBlocks: [
-          PoolBlock(height: 112100, time: DateTime.now()),
-          PoolBlock(height: 112100, time: DateTime.now()),
+        blocks: 8,
+        pools: const [
+          PoolShare(name: 'F2Pool', blocks: 5),
+          PoolShare(name: 'f2pool', blocks: 3),
         ],
+        fetchedAt: DateTime.now(),
       );
       await tester.pumpWidget(
-          _screen(chain: Stream.value(_chain()), pool: () => Stream.value(twice)));
+          _screen(chain: Stream.value(_chain()), pools: () => Stream.value(twice)));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 1400));
-      await tester.tap(find.byKey(const ValueKey('card pool')));
+      await tester.tap(find.byKey(const ValueKey('card pools')));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
-      expect(find.text('112,100'), findsNWidgets(2));
+      expect(find.text('F2POOL'), findsNWidgets(2));
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
     });
