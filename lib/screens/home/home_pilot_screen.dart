@@ -38,7 +38,7 @@ import '../../providers/weather_provider.dart';
 import '../../services/weather_service.dart';
 
 /// The one-time notice after the move to Mainnet (build 27): why the wallet
-/// now opens on Mainnet and how the SOQUPOOL payout wallet relates to this
+/// now opens on Mainnet and how a pool's payout wallet relates to this
 /// one. Shown until the member dismisses it; the dismissal persists.
 class _MainnetSwitchNotice extends StatelessWidget {
   const _MainnetSwitchNotice({required this.onDismiss});
@@ -47,10 +47,10 @@ class _MainnetSwitchNotice extends StatelessWidget {
 
   static const _text =
       'Soqucoin mainnet is live, so this wallet now opens on Mainnet. '
-      'SOQUPOOL pays the address saved in your pool settings, which may '
+      'Your pool pays the address saved in your pool settings, which may '
       'belong to a different wallet than this one. To receive payouts in '
       'this app, save this wallet\'s address in your pool settings. To use '
-      'the pool console wallet here instead, save this wallet\'s 24 words '
+      'the SOQUPOOL console wallet here instead, save this wallet\'s 24 words '
       'first, then wipe it in Settings and restore the console wallet\'s '
       'words. Stagenet is still available in Settings.';
 

@@ -1,8 +1,9 @@
 // The Network screen and what feeds it: the emission schedule against the
-// node's constants, the chain and pool readers against the shapes the live
-// endpoints return (captured 2026-10-06), the formatters, and the screen in
-// its three states (Stagenet live, Mainnet not yet answered, Mainnet live) on
-// the large and the small surface.
+// node's constants, the chain reader against the shapes the live node
+// returns (captured 2026-10-06) and the pools reader against the explorer's
+// (captured 2026-11-27), the formatters, and the screen in its three states
+// (Stagenet live, Mainnet not yet answered, Mainnet live) on the large and
+// the small surface.
 
 import 'dart:convert';
 import 'dart:io';
@@ -80,45 +81,60 @@ const _tipBlock = {
   'difficulty': 407.8413068844807,
   'tx': ['aa'],
 };
-const _poolIndex = {
-  'ActiveMiners': 5,
-  'BlocksPerHour': 52,
-  // One feed for every chain the pool mines: a Dogecoin row sits between the
-  // Soqucoin rows live, and a row naming no chain is not this chain's.
-  'LatestBlocks': [
-    {'chain': 'Soqucoin', 'blockHeight': 112127, 'finder': 'someone', 'effort': 0, 'reward': 0, 'created': '2026-10-06 04:08:09.059411 +0000 UTC', 'minutesAgo': 1},
-    {'chain': 'Dogecoin', 'blockHeight': 5985771, 'finder': 'someone', 'effort': 0, 'reward': 0, 'created': '2026-10-06 04:07:40.000000 +0000 UTC', 'minutesAgo': 1},
-    {'chain': 'Soqucoin', 'blockHeight': 112126, 'finder': 'someone', 'effort': 0, 'reward': 0, 'created': '2026-10-06 04:07:18.301183 +0000 UTC', 'minutesAgo': 2},
-    {'blockHeight': 112125, 'finder': 'someone', 'effort': 0, 'reward': 0, 'minutesAgo': 3},
-    {'chain': 'Soqucoin', 'blockHeight': 112121, 'finder': 'someone', 'effort': 5.9e-7, 'reward': 100000, 'minutesAgo': 9},
-  ],
-  'NetworkDifficulty': 97030382.37515819,
-  'NetworkHashrate': {'Rate': '6.95', 'Denomination': 'PH/s', 'Raw': 6945705316994654},
-  'PoolHashRate': {'Rate': '20.51', 'Denomination': 'GH/s', 'Raw': 20512397503},
-  'TotalBlocks': 99554,
-  'Workers': 7,
-};
-const _poolLuck = {
-  'currentRound': {'sharesSinceLastBlock': 76.2, 'expectedShares': 229.5, 'effortPct': 33.18, 'durationMinutes': 1},
-  'luck24h': 99.40773836252089,
-  'luck7d': 97.9957751222312,
-  'blocksLast24h': 1324,
-  'blocksLast7d': 9488,
-};
-const _poolStatus = {
-  'chains': [{'chain': 'soqucoin', 'feed': 'live'}],
-  'events': [],
-  'nodes': [
-    {'region': 'US-West', 'status': 'up', 'workers': 11},
-    {'region': 'EU', 'status': 'up', 'workers': 0},
-    {'region': 'Asia', 'status': 'down', 'workers': 0},
-  ],
-  'overall': 'operational',
-  'payouts': {'hours_utc': [0, 4, 8, 12, 16, 20], 'next_eta': '3h 51m (next cycle 08:00 UTC)'},
-};
-const _poolTerms = {'scheme': 'PPLNS', 'fee_rate': 0.015, 'post_mainnet_fee_rate': 0.0169};
+// The explorer's shapes, trimmed (captured 2026-11-27): the tip as text, and
+// the mining summary over the day of blocks ending at it. The explorer names
+// a pool whose payout address it knows and groups the rest by that address.
+// A link is present as it is live, and must never reach the model.
+const _tip = 65897;
+const _f2 = 'sq1pyvjd6up35lqtm0mjxu5khj6a69y8wdas657nyxphtc4343u5ymnsgmgyul';
+const _lp = 'sq1psjvu5zemy90t56ms25ql6vnpdawt9pga4lpvkr8gaapysukrxhgszyfc2n';
+const _nine = 'sq1pu43lfdnte6tmfwzhvy8y8j8ga0xghd9j9hhaazczrl2ellfynqtsv270c8';
+const _okm = 'sq1p8k44sc8da0mn0uz23ghpsd9psu9fy7yzedphxjjr87l2ztlguttqu3rxdx';
+List<int> _heights(int count) =>
+    [for (var i = 0; i < count; i++) _tip - 1400 + i * 7];
+Map<String, dynamic> _group(String name, int blocks,
+        {Map<String, dynamic>? details}) =>
+    {
+      'name': name,
+      'details': details,
+      'blocks': _heights(blocks),
+      'totalFees': '0.04206',
+      'totalSubsidy': '${blocks * 100000}',
+      'totalTransactions': blocks + 8,
+      'totalWeight': blocks * 4300,
+      'subsidyCount': blocks,
+    };
+Map<String, dynamic> _summary() => {
+      'miners': {
+        'F2Pool': _group('F2Pool', 104, details: {
+          'name': 'F2Pool',
+          'link': 'https://www.f2pool.com',
+          'identifiedBy': 'payout address $_f2',
+        }),
+        'address-only:$_lp': _group('address-only:$_lp', 16, details: {
+          'name': _lp,
+          'type': 'address-only',
+          'identifiedBy': 'payout address $_lp',
+        }),
+        'LuxxPool': _group('LuxxPool', 13),
+        'address-only:$_nine': _group('address-only:$_nine', 7),
+        'Mining-Dutch': _group('Mining-Dutch', 4),
+        'address-only:$_okm': _group('address-only:$_okm', 1),
+      },
+      'minerNamesSortedByBlockCount': [
+        'F2Pool', 'address-only:$_lp', 'LuxxPool', 'address-only:$_nine',
+        'Mining-Dutch', 'address-only:$_okm',
+      ],
+      'overall': {
+        'blockCount': 145, 'totalFees': '0.096456', 'totalSubsidy': '14500000',
+        'totalTransactions': 154, 'totalWeight': 637752, 'subsidyCount': 145,
+      },
+    };
 
-http.Response _ok(Object body) => http.Response(jsonEncode(body), 200);
+/// A JSON answer as the live hosts send one: UTF-8, labelled as such.
+http.Response _ok(Object body) => http.Response.bytes(
+    utf8.encode(jsonEncode(body)), 200,
+    headers: {'content-type': 'application/json; charset=utf-8'});
 
 /// A proxy answering the three chain calls; [down] answers nothing.
 MockClient _rpc({bool down = false}) => MockClient((req) async {
@@ -137,15 +153,23 @@ MockClient _rpc({bool down = false}) => MockClient((req) async {
       return _ok({'result': result, 'error': null, 'id': 1});
     });
 
-/// The pool's four endpoints; [failing] answer 500.
-MockClient _poolApi({Set<String> failing = const {}}) => MockClient((req) async {
+/// The explorer's two endpoints; [failing] answer 500; [summary] replaces the
+/// summary (a string is sent as the body itself); [seen] records the requests.
+MockClient _explorer({
+  Set<String> failing = const {},
+  Object? summary,
+  String tip = '$_tip',
+  List<Uri>? seen,
+}) =>
+    MockClient((req) async {
+      seen?.add(req.url);
       final p = req.url.path;
       if (failing.contains(p)) return http.Response('down', 500);
       return switch (p) {
-        '/pool' => _ok(_poolIndex),
-        '/pool/luck' => _ok(_poolLuck),
-        '/pool/status' => _ok(_poolStatus),
-        '/pool/terms' => _ok(_poolTerms),
+        '/api/blocks/tip/height' => http.Response(tip, 200),
+        '/api/mining/miner-summary' => summary is String
+            ? http.Response(summary, 200)
+            : _ok(summary ?? _summary()),
         _ => http.Response('not found', 404),
       };
     });
@@ -171,7 +195,7 @@ class _SeenLive extends MainnetSeenLiveNotifier {
 }
 
 Widget _screen(SoqNetwork network,
-        {required ChainWeather chain, PoolWeather? pool, bool seenLive = false}) =>
+        {required ChainWeather chain, PoolsWeather? pools, bool seenLive = false}) =>
     ProviderScope(
       overrides: [
         authProvider.overrideWith(() => MockAuthNotifier(AuthStatus.authenticated)),
@@ -180,9 +204,9 @@ Widget _screen(SoqNetwork network,
         walletProvider.overrideWith(() => MockWalletNotifier(_wallet(network))),
         mainnetSeenLiveProvider.overrideWith(() => _SeenLive(seenLive)),
         chainWeatherProvider.overrideWith((ref) => Stream.value(chain)),
-        poolWeatherProvider.overrideWith((ref) => pool == null
-            ? const Stream<PoolWeather>.empty()
-            : Stream.value(pool)),
+        poolsWeatherProvider.overrideWith((ref) => pools == null
+            ? const Stream<PoolsWeather>.empty()
+            : Stream.value(pools)),
       ],
       child: const MaterialApp(home: NetworkPilotScreen()),
     );
@@ -276,131 +300,139 @@ void main() {
     });
   });
 
-  group('the pool reader', () {
-    test('reads the public figures and never the finder of a block', () async {
-      final p = await fetchPoolWeather(client: _poolApi());
+  group('the pools reader', () {
+    test('reads every pool over the day ending at the tip, by name or by '
+        'address, most blocks first, and never a link or a member', () async {
+      final seen = <Uri>[];
+      final p = await fetchPoolsWeather(client: _explorer(seen: seen));
       expect(p.reachable, isTrue);
-      expect(p.poolHashrate, 20512397503);
-      expect(p.activeMiners, 5);
-      expect(p.workers, 7);
-      expect(p.blocksPerHour, 52);
-      expect(p.blocks24h, 1324);
-      expect(p.blocks7d, 9488);
-      expect(p.luck24h, closeTo(99.41, 0.01));
-      expect(p.luck7d, closeTo(98.0, 0.01));
-      expect(p.roundEffortPct, closeTo(33.18, 0.01));
-      expect(p.overall, 'operational');
-      expect(p.regions.map((r) => r.region), ['US-West', 'EU', 'Asia']);
-      expect(p.regions.where((r) => r.up).length, 2);
-      expect(p.nextPayoutEta, '3h 51m (next cycle 08:00 UTC)');
-      expect(p.feeRate, 0.015);
-      expect(p.scheme, 'PPLNS');
-      expect(p.latestBlocks.map((b) => b.height), [112127, 112126, 112121],
-          reason: 'the Dogecoin row and the row naming no chain are not this '
-              'chain\'s blocks');
-      expect(p.latestBlocks.map((b) => b.height), isNot(contains(5985771)));
-      expect(p.latestBlocks.map((b) => b.height), isNot(contains(112125)));
-      expect(p.latestBlocks[0].time, DateTime.utc(2026, 10, 6, 4, 8, 9));
-      expect(p.latestBlocks[2].time.isBefore(p.fetchedAt), isTrue,
-          reason: 'a row without a created time falls back to minutesAgo');
-      // The reader names the finder nowhere: not as a key it reads, not as a
-      // field it keeps.
+      expect(seen.map((u) => u.path),
+          ['/api/blocks/tip/height', '/api/mining/miner-summary']);
+      expect(seen[1].queryParameters,
+          {'startHeight': '${_tip - 1439}', 'endHeight': '$_tip'},
+          reason: 'one day of blocks at sixty seconds, ending at the tip');
+      expect(p.startHeight, _tip - 1439);
+      expect(p.endHeight, _tip);
+      expect(p.blocks, 145);
+      expect(p.pools.map((s) => s.label), [
+        'F2Pool', 'sq1psjvu5z…zyfc2n', 'LuxxPool', 'sq1pu43lfd…v270c8',
+        'Mining-Dutch', 'sq1p8k44sc…u3rxdx',
+      ]);
+      expect(p.pools.map((s) => s.blocks), [104, 16, 13, 7, 4, 1]);
+      expect(p.pools[0].address, isNull);
+      expect(p.pools[1].address, _lp);
+      expect(p.pools[1].name, isEmpty);
+      expect(p.shareOf(p.pools[0]), closeTo(0.7172, 0.0001));
+      expect(fmtShare(p.shareOf(p.pools[0])), '72%');
+      // The reader names a link, a finder or the explorer's own details
+      // nowhere: not as a key it reads, not as a field it keeps.
       final reader = File('lib/services/weather_service.dart').readAsStringSync();
-      expect(reader, isNot(contains("['finder']")));
-      expect(reader, isNot(contains("'finder'")));
+      for (final word in ["'link'", "'finder'", "'details'", "'identifiedBy'"]) {
+        expect(reader, isNot(contains(word)), reason: word);
+      }
     });
 
-    test('one endpoint down leaves its fields null and the rest read', () async {
-      final p = await fetchPoolWeather(client: _poolApi(failing: {'/pool/luck'}));
+    test('the tip not answering, or not a height, or the summary not '
+        'answering or not an object, is unreachable', () async {
+      Future<bool> reachable(MockClient c) async =>
+          (await fetchPoolsWeather(client: c)).reachable;
+      expect(await reachable(_explorer(failing: {'/api/blocks/tip/height'})),
+          isFalse);
+      expect(await reachable(_explorer(tip: 'soon')), isFalse);
+      expect(await reachable(_explorer(tip: '-5')), isFalse);
+      expect(await reachable(_explorer(failing: {'/api/mining/miner-summary'})),
+          isFalse);
+      expect(await reachable(_explorer(summary: '[1, 2]')), isFalse,
+          reason: 'a body that is not an object');
+      expect(await reachable(_explorer(summary: 'not json')), isFalse);
+      expect((await fetchPoolsWeather(client: _explorer(tip: 'soon'))).pools,
+          isEmpty);
+    });
+
+    test('talks to the Mainnet explorer only, over one day of blocks, and '
+        'starts at genesis when the chain is shorter', () async {
+      final seen = <Uri>[];
+      await fetchPoolsWeather(client: _explorer(seen: seen));
+      final host = Uri.parse(SoqNetwork.mainnet.explorerUrl!).host;
+      expect(seen.map((u) => u.host).toSet(), {host});
+      expect(seen.map((u) => u.scheme).toSet(), {'https'});
+      expect(kPoolsWindow, 1440);
+      final young = <Uri>[];
+      await fetchPoolsWeather(client: _explorer(tip: '20', seen: young));
+      expect(young[1].queryParameters, {'startHeight': '0', 'endHeight': '20'});
+    });
+
+    test('a hostile answer reads as bounded text: control and invisible '
+        'characters go, a long name is cut, a bad address reads as a name, '
+        'a blockless group is dropped, a nameless one is counted but not '
+        'listed, and more than 24 groups list the biggest with every block '
+        'still in the denominator', () async {
+      final many = {for (var i = 0; i < 30; i++) 'pool $i': _group('pool $i', i + 1)};
+      final hostile = {
+        'miners': {
+          ...many,
+          'F2\u202EPool\u0000': _group('x', 100),
+          'address-only:NOT an address': _group('x', 50),
+          '   \u200B': _group('x', 40),
+          'none': {'blocks': <int>[]},
+          'string blocks': {'blocks': 'ten'},
+          'x' * 100: _group('x', 60),
+          // The explorer's counts are not read: the heights are.
+          'counted': {'blocks': [1, 2], 'subsidyCount': 1000},
+        },
+      };
+      final p = await fetchPoolsWeather(client: _explorer(summary: hostile));
       expect(p.reachable, isTrue);
-      expect(p.luck24h, isNull);
-      expect(p.blocks24h, isNull);
-      expect(p.activeMiners, 5);
-    });
-
-    test('every endpoint down is unreachable', () async {
-      final p = await fetchPoolWeather(
-          client: _poolApi(failing: {'/pool', '/pool/luck', '/pool/status', '/pool/terms'}));
-      expect(p.reachable, isFalse);
-    });
-
-    test('talks to the pool API host only', () {
-      expect(kPoolApiHost, 'api.soqupool.com');
-    });
-
-    test('a wrong-typed string field, an infinite number or an absurd age '
-        'reads as absent, and the pool still reads as answering', () async {
-      // Written as text: a JSON encoder will not emit an infinite number,
-      // a hostile host can.
-      final hostile = MockClient((req) async => switch (req.url.path) {
-            '/pool' => http.Response(
-                '{"ActiveMiners": 1e400, "Workers": 7, "BlocksPerHour": 52, '
-                '"PoolHashRate": {"Raw": 20512397503}, '
-                '"LatestBlocks": [{"chain": "Soqucoin", "blockHeight": 112127, "minutesAgo": 1e15}, '
-                '{"chain": "Soqucoin", "blockHeight": 112126, "minutesAgo": 3}]}',
-                200),
-            '/pool/luck' => http.Response(
-                '{"luck24h": 1e400, "luck7d": 97.99, "blocksLast24h": 1324}', 200),
-            '/pool/status' => _ok({
-                ...Map<String, dynamic>.from(_poolStatus),
-                'overall': 7,
-                'payouts': {'next_eta': ['soon']},
-              }),
-            '/pool/terms' => _ok({'scheme': 42, 'fee_rate': 0.015}),
-            _ => http.Response('not found', 404),
-          });
-      final p = await fetchPoolWeather(client: hostile);
-      expect(p.reachable, isTrue);
-      expect(p.activeMiners, isNull);
-      expect(p.luck24h, isNull);
-      expect(p.overall, isNull);
-      expect(p.nextPayoutEta, isNull);
-      expect(p.scheme, isNull);
-      expect(p.feeRate, 0.015);
-      expect(p.latestBlocks.map((b) => b.height), [112126],
-          reason: 'a row whose age cannot be a recent block is dropped');
-    });
-
-    test('unknown shapes read as absent fields, with the pool answering', () async {
-      final broken = MockClient((req) async => _ok({
-            'ActiveMiners': 5,
-            'LatestBlocks': 'x',
-            'PoolHashRate': 3,
-            'nodes': 5,
-            'currentRound': 'none',
-            'payouts': 'later',
-          }));
-      final p = await fetchPoolWeather(client: broken);
-      expect(p.reachable, isTrue, reason: 'unknown shapes are absent fields');
-      expect(p.poolHashrate, isNull);
-      expect(p.regions, isEmpty);
-      expect(p.latestBlocks, isEmpty);
+      expect(p.pools.length, 24);
+      expect(p.pools[0].label, 'F2Pool');
+      expect(p.pools[1].label, 'x' * 40);
+      expect(p.pools[2].label, 'address-only:NOT an address');
+      final labels = p.pools.map((s) => s.label).toList();
+      expect(labels, isNot(contains('none')));
+      expect(labels, isNot(contains('string blocks')));
+      expect(labels, isNot(contains('')));
+      expect(labels, isNot(contains('counted')),
+          reason: 'two blocks fall below the 24 biggest');
+      expect(p.pools.last.blocks, 10, reason: '100, 60, 50, then 30 down to 10');
+      expect(p.blocks, 717,
+          reason: 'every block grouped: 465 + 100 + 50 + 40 (nameless) + 60 + 2');
+      expect(p.groupCount, 35, reason: '30 pools, F2Pool, the bad address, '
+          'the nameless, the long name, the counted');
+      expect(p.unlisted, 11);
+      expect(p.pools.fold(0, (sum, s) => sum + s.blocks), lessThan(p.blocks),
+          reason: 'the listed rows are not the whole window');
+      expect(fmtShare(p.shareOf(p.pools[0])), '14%',
+          reason: '100 of 717, not of the listed rows\' 580');
     });
 
     test('every field takes every JSON shape without a throw', () async {
-      // Each pool field, given each shape JSON can carry; the reader must
-      // absorb them all (the catch round the parse is a backstop no known
-      // shape reaches).
       final shapes = <Object?>[null, true, 0, -1, 1.5, 'x', [], [1, 'a'], {}, {'a': 1}];
-      const fields = [
-        'ActiveMiners', 'Workers', 'BlocksPerHour', 'PoolHashRate', 'LatestBlocks',
-        'luck24h', 'luck7d', 'blocksLast24h', 'blocksLast7d', 'currentRound',
-        'overall', 'nodes', 'payouts', 'fee_rate', 'scheme',
-      ];
       for (final shape in shapes) {
-        final body = {for (final f in fields) f: shape};
-        final c = MockClient((req) async => _ok(body));
-        final p = await fetchPoolWeather(client: c);
-        expect(p.reachable, isTrue, reason: 'shape $shape answered');
+        for (final body in [
+          {'miners': shape},
+          {'miners': {'F2Pool': shape}},
+          {'miners': {'F2Pool': {'blocks': shape}}},
+          {'miners': {'address-only:$_f2': {'blocks': shape}}},
+          {'overall': shape, 'minerNamesSortedByBlockCount': shape},
+        ]) {
+          final p = await fetchPoolsWeather(client: _explorer(summary: body));
+          expect(p.reachable, isTrue, reason: 'shape $shape in $body answered');
+        }
       }
-      // Rows of every shape inside the lists.
-      final rows = MockClient((req) async => _ok({
-            'LatestBlocks': [...shapes, {'blockHeight': 'x'}, {'blockHeight': 5, 'created': 7}],
-            'nodes': [...shapes, {'region': 3}, {'region': 'EU', 'status': 9, 'workers': 'z'}],
-          }));
-      final p = await fetchPoolWeather(client: rows);
-      expect(p.latestBlocks, isEmpty);
-      expect(p.regions.map((r) => r.region), ['EU']);
+    });
+
+    test('a tie in blocks sorts by label, and an empty window has no shares',
+        () async {
+      final tie = {'miners': {'Zeta': _group('Zeta', 5), 'Alpha': _group('Alpha', 5)}};
+      final p = await fetchPoolsWeather(client: _explorer(summary: tie));
+      expect(p.pools.map((s) => s.label), ['Alpha', 'Zeta']);
+      final empty =
+          await fetchPoolsWeather(client: _explorer(summary: {'miners': {}}));
+      expect(empty.reachable, isTrue);
+      expect(empty.pools, isEmpty);
+      expect(empty.blocks, 0);
+      expect(empty.groupCount, 0);
+      expect(empty.shareOf(const PoolShare(name: 'x', blocks: 1)), 0);
     });
 
     test('a chain answer with a negative height or a tip without a time reads '
@@ -442,6 +474,16 @@ void main() {
       expect(fmtHashrate(850), '850 H/s');
       expect(fmtHashrate(1500), '1.50 kH/s');
     });
+    test('share', () {
+      expect(fmtShare(0.7172), '72%');
+      expect(fmtShare(1), '100%');
+      expect(fmtShare(0), '0%');
+      expect(fmtShare(0.004), '<1%');
+      expect(fmtShare(0.006), '1%');
+      expect(fmtShare(double.nan), '—');
+      expect(fmtShare(-0.1), '—');
+    });
+
     test('difficulty', () {
       expect(fmtDifficulty(407.8413), '407.8');
       expect(fmtDifficulty(97030382.4), '97.0M');
@@ -543,15 +585,18 @@ void main() {
       sub.close();
     });
 
-    test('a returning watcher gets a fresh pool poll at once', () async {
+    test('a returning watcher gets a fresh pools poll at once, on the '
+        'Mainnet explorer', () async {
       final container = ProviderContainer();
       addTearDown(container.dispose);
-      var sub = container.listen(poolWeatherProvider, (_, _) {});
+      var sub = container.listen(poolsWeatherProvider, (_, _) {});
       await until(() => overrides.urls.isNotEmpty);
+      expect(overrides.urls.first.host,
+          Uri.parse(SoqNetwork.mainnet.explorerUrl!).host);
       sub.close();
       await Future<void>.delayed(const Duration(milliseconds: 50));
       final before = overrides.urls.length;
-      sub = container.listen(poolWeatherProvider, (_, _) {});
+      sub = container.listen(poolsWeatherProvider, (_, _) {});
       await until(() => overrides.urls.length > before);
       expect(overrides.urls.length, greaterThan(before));
       sub.close();
@@ -575,14 +620,14 @@ void main() {
       fetchedAt: DateTime.now(),
     );
     final offline = ChainWeather.unreachable(DateTime.now());
-    Future<PoolWeather> livePool() => fetchPoolWeather(client: _poolApi());
+    Future<PoolsWeather> livePools() => fetchPoolsWeather(client: _explorer());
 
     for (final size in [_large, _small]) {
-      testWidgets('Stagenet live reads the chain, the schedule and the pool '
+      testWidgets('Stagenet live reads the chain, the schedule and the pools '
           'on ${size.width.toInt()} wide', (tester) async {
         _surface(tester, size);
         await tester.pumpWidget(_screen(SoqNetwork.stagenet,
-            chain: liveChain, pool: await livePool()));
+            chain: liveChain, pools: await livePools()));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 300));
         expect(find.text('SOQUCOIN · ML-DSA-44 · LIVE'), findsOneWidget);
@@ -590,7 +635,9 @@ void main() {
         // The weather in words, then the cards: closed at first, with their
         // one-line summaries; the grids wait for a tap.
         expect(find.textContaining('Blocks are arriving on time.'), findsOneWidget);
-        expect(find.textContaining('SOQUPOOL is operational with 5 miners.'),
+        expect(
+            find.textContaining(
+                '6 pools found the last 145 blocks; F2Pool found 72%.'),
             findsOneWidget);
         expect(find.text('LAST BLOCK ${fmtUtcTime(liveChain.tipTime!)}'),
             findsOneWidget, reason: 'the chain card\'s line');
@@ -625,35 +672,42 @@ void main() {
         expect(find.text('100,000 SOQ'), findsOneWidget);
         expect(find.text('50,000 SOQ'), findsOneWidget);
         expect(find.text('UNTIL BLOCK 250,000'), findsOneWidget);
-        // The pool card sits below the fold on the small surface and the
+        // The pools card sits below the fold on the small surface and the
         // list builds lazily: bring each part into view before reading it.
-        await tester.scrollUntilVisible(find.text('OPERATIONAL'), 120, scrollable: list);
+        await tester.scrollUntilVisible(find.text('6 MINING'), 120, scrollable: list);
         await tester.pump();
-        expect(find.text('SOQUPOOL'), findsOneWidget);
-        expect(find.text('OPERATIONAL'), findsOneWidget);
-        expect(find.textContaining('5 MINERS · 52 BLOCKS / HR'), findsOneWidget,
-            reason: 'the pool card\'s line, closed');
-        await tester.tap(find.byKey(const ValueKey('card pool')));
+        expect(find.text('POOLS'), findsOneWidget);
+        expect(find.text('6 MINING'), findsOneWidget);
+        expect(find.text('F2POOL 72% · SQ1PSJVU5Z…ZYFC2N 11% · 4 MORE'),
+            findsOneWidget, reason: 'the pools card\'s line, closed');
+        expect(find.text('BLOCKS 64,458 TO 65,897 · MAINNET'), findsOneWidget,
+            reason: 'the window in blocks: a day at the target, which the '
+                'chain only approximates');
+        expect(find.text('F2POOL'), findsNothing, reason: 'closed');
+        await tester.tap(find.byKey(const ValueKey('card pools')));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 300));
-        await tester.scrollUntilVisible(find.text('3h 51m'), 120, scrollable: list);
-        await tester.pump();
-        expect(find.text('1,324'), findsOneWidget);
-        expect(find.text('1.50%'), findsOneWidget);
-        expect(find.text('3h 51m'), findsOneWidget);
-        expect(find.text('2 OF 3 UP'), findsOneWidget);
-        expect(find.text('US-WEST · EU · ASIA DOWN'), findsOneWidget,
-            reason: 'the region that is down is named');
-        await tester.scrollUntilVisible(
-            find.textContaining('reads only what the pool publishes'), 120,
+        await tester.scrollUntilVisible(find.text('MINING-DUTCH'), 120,
             scrollable: list);
         await tester.pump();
-        expect(find.textContaining('reads only what the pool publishes'), findsOneWidget);
-        await tester.scrollUntilVisible(find.text('112,127'), 120, scrollable: list);
+        expect(find.text('F2POOL'), findsOneWidget);
+        expect(find.text('72%'), findsOneWidget);
+        expect(find.text('104 BLOCKS'), findsOneWidget);
+        expect(find.text('SQ1PSJVU5Z…ZYFC2N'), findsOneWidget,
+            reason: 'a pool the explorer has no name for, by its address');
+        expect(find.text('1 BLOCK'), findsOneWidget, reason: 'the singular');
+        expect(find.textContaining(RegExp(r'^~[0-9.]+ [kMGTPE]?H/s$')),
+            findsNothing,
+            reason: 'no hashrate per pool on Stagenet: the pools are '
+                'Mainnet\'s, the figure would be this chain\'s');
+        await tester.scrollUntilVisible(
+            find.textContaining('reads only what the chain shows'), 120,
+            scrollable: list);
         await tester.pump();
-        expect(find.text('LATEST BLOCKS'), findsOneWidget);
-        expect(find.text('112,127'), findsOneWidget);
-        expect(find.text('someone'), findsNothing, reason: 'no finder on screen');
+        expect(find.textContaining('reads only what the chain shows'),
+            findsOneWidget);
+        expect(find.textContaining('f2pool'), findsNothing,
+            reason: 'no link on screen');
         expect(tester.takeException(), isNull, reason: 'nothing overflows');
         await tester.pumpWidget(const SizedBox.shrink());
       });
@@ -666,7 +720,7 @@ void main() {
       final semantics = tester.ensureSemantics();
       _surface(tester, _large);
       await tester.pumpWidget(_screen(SoqNetwork.stagenet,
-          chain: liveChain, pool: await livePool()));
+          chain: liveChain, pools: await livePools()));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
       expect(
@@ -675,7 +729,7 @@ void main() {
           findsOneWidget);
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpWidget(_screen(SoqNetwork.mainnet,
-          chain: offline, pool: await livePool()));
+          chain: offline, pools: await livePools()));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
       expect(find.bySemanticsLabel('Block clock offline.'), findsOneWidget);
@@ -684,10 +738,10 @@ void main() {
     });
 
     testWidgets('Mainnet not yet answered waits: the clock is offline, the '
-        'schedule reads from genesis and the pool section waits', (tester) async {
+        'schedule reads from genesis and the pools section waits', (tester) async {
       _surface(tester, _large);
       await tester.pumpWidget(_screen(SoqNetwork.mainnet,
-          chain: offline, pool: await livePool()));
+          chain: offline, pools: await livePools()));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
       expect(find.text('SOQUCOIN · ML-DSA-44 · OFFLINE'), findsOneWidget);
@@ -697,18 +751,19 @@ void main() {
       expect(find.text('100,000 SOQ A BLOCK AT GENESIS'), findsOneWidget,
           reason: 'the emission card\'s line, closed');
       expect(find.text('WAITING FOR THE NETWORK'), findsOneWidget,
-          reason: 'the pool card\'s line, closed');
+          reason: 'the pools card\'s line, closed');
       await tester.tap(find.byKey(const ValueKey('card emission')));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
       expect(find.text('BLOCK REWARD · GENESIS'), findsOneWidget);
       expect(find.text('100,000 SOQ'), findsOneWidget);
-      await tester.tap(find.byKey(const ValueKey('card pool')));
+      await tester.tap(find.byKey(const ValueKey('card pools')));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
-      expect(find.textContaining('figures appear here once Mainnet answers'), findsOneWidget);
-      expect(find.text('OPERATIONAL'), findsNothing,
-          reason: 'the pool reports on the chain it mines, not yet this one');
+      expect(find.textContaining('appears here once Mainnet answers'),
+          findsOneWidget);
+      expect(find.text('6 MINING'), findsNothing,
+          reason: 'the pools report on the chain they mine, not yet this one');
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
     });
@@ -717,21 +772,116 @@ void main() {
         (tester) async {
       _surface(tester, _large);
       await tester.pumpWidget(_screen(SoqNetwork.mainnet,
-          chain: offline, pool: await livePool(), seenLive: true));
+          chain: offline, pools: await livePools(), seenLive: true));
       await tester.pump();
       expect(find.text('Reconnecting to the network.'), findsOneWidget);
       expect(find.textContaining('Connecting to Mainnet'), findsNothing);
       await tester.pumpWidget(const SizedBox.shrink());
     });
 
-    testWidgets('Mainnet live shows the pool', (tester) async {
+    testWidgets('Mainnet live shows the pools, each with the hashrate its '
+        'share of the blocks stands for', (tester) async {
       _surface(tester, _large);
       await tester.pumpWidget(_screen(SoqNetwork.mainnet,
-          chain: liveChain, pool: await livePool(), seenLive: true));
+          chain: liveChain, pools: await livePools(), seenLive: true));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
       expect(find.text('CHAIN · MAINNET'), findsOneWidget);
-      expect(find.text('OPERATIONAL'), findsOneWidget);
+      expect(find.text('6 MINING'), findsOneWidget);
+      final list = find.byType(Scrollable).first;
+      await tester.scrollUntilVisible(
+          find.byKey(const ValueKey('card pools')), 120, scrollable: list);
+      await tester.tap(find.byKey(const ValueKey('card pools')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.scrollUntilVisible(find.text('~14.6 GH/s'), 120,
+          scrollable: list);
+      await tester.pump();
+      expect(find.text('~14.6 GH/s'), findsOneWidget,
+          reason: '72% of the network\'s 20.4 GH/s');
+      await tester.scrollUntilVisible(find.text('~140.7 MH/s'), 120,
+          scrollable: list);
+      await tester.pump();
+      expect(find.text('~140.7 MH/s'), findsOneWidget,
+          reason: '1 of 145 blocks of 20.4 GH/s');
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('a chain figure older than the poll period lends no hashrate '
+        'to the pools', (tester) async {
+      _surface(tester, _large);
+      final kept = ChainWeather(
+        reachable: true,
+        height: 112105,
+        tipTime: DateTime.now().subtract(const Duration(minutes: 5)),
+        difficulty: 407.84,
+        hashrate: 20398783697.58,
+        mempoolTx: 3,
+        peers: 10,
+        fetchedAt: DateTime.now().subtract(const Duration(minutes: 5)),
+      );
+      await tester.pumpWidget(_screen(SoqNetwork.mainnet,
+          chain: kept, pools: await livePools(), seenLive: true));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      final list = find.byType(Scrollable).first;
+      await tester.scrollUntilVisible(
+          find.byKey(const ValueKey('card pools')), 120, scrollable: list);
+      await tester.tap(find.byKey(const ValueKey('card pools')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.scrollUntilVisible(find.text('F2POOL'), 120, scrollable: list);
+      await tester.pump();
+      expect(find.text('72%'), findsOneWidget, reason: 'the shares stand');
+      expect(find.textContaining(RegExp(r'^~[0-9.]+ [kMGTPE]?H/s$')),
+          findsNothing,
+          reason: 'a figure kept over a pause lends no hashrate');
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('the pools not listed are counted and said', (tester) async {
+      _surface(tester, _large);
+      final crowded = PoolsWeather(
+        reachable: true,
+        startHeight: 64458,
+        endHeight: 65897,
+        blocks: 1440,
+        groups: 30,
+        pools: const [
+          PoolShare(name: 'F2Pool', blocks: 1000),
+          PoolShare(name: 'LuxxPool', blocks: 100),
+          PoolShare(name: 'Mining-Dutch', blocks: 40),
+        ],
+        fetchedAt: DateTime.now(),
+      );
+      await tester.pumpWidget(_screen(SoqNetwork.mainnet,
+          chain: liveChain, pools: crowded, seenLive: true));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('30 MINING'), findsOneWidget);
+      expect(find.text('F2POOL 69% · LUXXPOOL 7% · 28 MORE'), findsOneWidget,
+          reason: 'the rest counts the unlisted too');
+      expect(
+          find.textContaining(
+              '30 pools found the last 1,440 blocks; F2Pool found 69%.'),
+          findsOneWidget);
+      final list = find.byType(Scrollable).first;
+      await tester.scrollUntilVisible(
+          find.byKey(const ValueKey('card pools')), 120, scrollable: list);
+      await tester.tap(find.byKey(const ValueKey('card pools')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.scrollUntilVisible(
+          find.textContaining('biggest pools are listed'), 120,
+          scrollable: list);
+      await tester.pump();
+      expect(
+          find.textContaining('The 3 biggest pools are listed; 27 more found '
+              'a block, counted in the shares.'),
+          findsOneWidget);
+      expect(find.text('3%'), findsOneWidget, reason: '40 of 1,440');
+      expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
     });
 
@@ -761,15 +911,16 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     });
 
-    testWidgets('hostile figures never break the build: an infinite luck, a '
-        'non-finite effort, a tip without a time', (tester) async {
+    testWidgets('hostile figures never break the build: a share over the '
+        'whole, a total of nothing, a tip without a time', (tester) async {
       _surface(tester, _large);
-      final odd = PoolWeather(
+      final odd = PoolsWeather(
         reachable: true,
-        luck24h: double.infinity,
-        luck7d: double.nan,
-        roundEffortPct: double.nan,
-        overall: 'operational',
+        blocks: 3,
+        pools: const [
+          PoolShare(name: 'Over', blocks: 5),
+          PoolShare(name: '', address: 'sq1pshort', blocks: 0),
+        ],
         fetchedAt: DateTime.now(),
       );
       final noTip = ChainWeather(
@@ -782,18 +933,21 @@ void main() {
         peers: 10,
         fetchedAt: DateTime.now(),
       );
-      await tester.pumpWidget(_screen(SoqNetwork.stagenet, chain: noTip, pool: odd));
+      await tester.pumpWidget(_screen(SoqNetwork.stagenet, chain: noTip, pools: odd));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
       expect(tester.takeException(), isNull);
       // The hostile figures sit in the grids: open every card to build them.
-      for (final id in ['chain', 'emission', 'pool']) {
+      for (final id in ['chain', 'emission', 'pools']) {
         await tester.tap(find.byKey(ValueKey('card $id')));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 300));
       }
       expect(tester.takeException(), isNull);
-      expect(find.text('LUCK · 24 H'), findsOneWidget, reason: 'the grid built');
+      expect(find.text('OVER'), findsOneWidget, reason: 'the rows built');
+      expect(find.text('100%'), findsOneWidget, reason: 'a share is at most the whole');
+      expect(find.text('SQ1PSHORT'), findsOneWidget, reason: 'a short address, whole');
+      expect(find.text('0%'), findsOneWidget);
       expect(find.text('—'), findsWidgets, reason: 'absent figures read as dashes');
       await tester.pumpWidget(const SizedBox.shrink());
     });
@@ -822,22 +976,23 @@ void main() {
       tester.platformDispatcher.textScaleFactorTestValue = kMaxTextScale;
       addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
       await tester.pumpWidget(_screen(SoqNetwork.stagenet,
-          chain: liveChain, pool: await livePool()));
+          chain: liveChain, pools: await livePools()));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
       final list = find.byType(Scrollable).first;
-      await tester.scrollUntilVisible(find.text('OPERATIONAL'), 120, scrollable: list);
+      await tester.scrollUntilVisible(find.text('6 MINING'), 120, scrollable: list);
       await tester.pump();
       expect(tester.takeException(), isNull, reason: 'nothing overflows at the limit');
       // Every card open as well.
-      for (final id in ['chain', 'emission', 'pool']) {
+      for (final id in ['chain', 'emission', 'pools']) {
         await tester.scrollUntilVisible(find.byKey(ValueKey('card $id')), 120,
             scrollable: list);
         await tester.tap(find.byKey(ValueKey('card $id')));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 300));
       }
-      await tester.scrollUntilVisible(find.text('LATEST BLOCKS'), 120,
+      await tester.scrollUntilVisible(
+          find.textContaining('reads only what the chain shows'), 120,
           scrollable: list);
       await tester.pump();
       expect(tester.takeException(), isNull,
@@ -873,12 +1028,13 @@ void main() {
     });
 
     testWidgets('Stagenet on an install that has seen Mainnet live shows no '
-        'pool (the pool has moved on)', (tester) async {
+        'pools (they report on Mainnet)', (tester) async {
       _surface(tester, _large);
       await tester.pumpWidget(_screen(SoqNetwork.stagenet,
-          chain: liveChain, pool: await livePool(), seenLive: true));
+          chain: liveChain, pools: await livePools(), seenLive: true));
       await tester.pump();
-      expect(find.text('OPERATIONAL'), findsNothing);
+      expect(find.text('POOLS'), findsNothing);
+      expect(find.text('6 MINING'), findsNothing);
       await tester.pumpWidget(const SizedBox.shrink());
     });
   });

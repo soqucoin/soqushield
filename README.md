@@ -14,7 +14,7 @@ This repository is the source of the app on Google Play and the App Store. The l
 - Send and receive SOQ with post-quantum signatures
 - Optionally show what a balance is worth, in any of 22 currencies
 - Activity: the wallet's history, rebuilt from the chain after a restore
-- Network: the chain's block clock and public figures, and SOQUPOOL's published figures
+- Network: the chain's block clock and public figures, and the pools that found its last 1,440 blocks, read from the public explorer
 - The Field Manual: the in-app user guide, no account needed
 
 ## Money figures

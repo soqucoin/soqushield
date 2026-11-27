@@ -57,29 +57,42 @@ ChainWeather _chain({required Duration sinceTip}) => ChainWeather(
       fetchedAt: DateTime.now(),
     );
 
-PoolWeather _pool({int? miners = 5, String? overall = 'operational'}) =>
-    PoolWeather(
-      reachable: true,
-      fetchedAt: DateTime.now(),
-      poolHashrate: 1.3e9,
-      activeMiners: miners,
-      workers: 11,
-      blocksPerHour: 52,
-      blocks24h: 1324,
-      luck24h: 98,
-      overall: overall,
-      regions: const [],
-      nextPayoutEta: '3h 51m',
-      feeRate: 0.015,
-      scheme: 'PPLNS',
-      latestBlocks: const [],
-    );
+/// The last day's pools as the reader gives them, most blocks first: six
+/// by default, two of them known to the explorer by address only.
+PoolsWeather _pools({List<PoolShare>? shares}) {
+  final list = shares ??
+      const [
+        PoolShare(name: 'F2Pool', blocks: 104),
+        PoolShare(
+            name: '',
+            address: 'sq1psjvu5zemy90t56ms25ql6vnpdawt9pga4lpvkr8gaapysukrxhgszyfc2n',
+            blocks: 16),
+        PoolShare(name: 'LuxxPool', blocks: 13),
+        PoolShare(
+            name: '',
+            address: 'sq1pu43lfdnte6tmfwzhvy8y8j8ga0xghd9j9hhaazczrl2ellfynqtsv270c8',
+            blocks: 7),
+        PoolShare(name: 'Mining-Dutch', blocks: 4),
+        PoolShare(
+            name: '',
+            address: 'sq1p8k44sc8da0mn0uz23ghpsd9psu9fy7yzedphxjjr87l2ztlguttqu3rxdx',
+            blocks: 1),
+      ];
+  return PoolsWeather(
+    reachable: true,
+    startHeight: 64458,
+    endHeight: 65897,
+    blocks: list.fold(0, (sum, s) => sum + s.blocks),
+    pools: list,
+    fetchedAt: DateTime.now(),
+  );
+}
 
 /// The screen with the chain poll answering [chain], or still loading when
 /// [chain] is null; under the platform's reduced-motion setting when
 /// [reduced].
 Widget _screen(
-        {required ChainWeather? chain, PoolWeather? pool, bool reduced = false}) =>
+        {required ChainWeather? chain, PoolsWeather? pools, bool reduced = false}) =>
     ProviderScope(
       overrides: [
         authProvider
@@ -91,9 +104,9 @@ Widget _screen(
         chainWeatherProvider.overrideWith((ref) => chain == null
             ? const Stream<ChainWeather>.empty()
             : Stream.value(chain)),
-        poolWeatherProvider.overrideWith((ref) => pool == null
-            ? const Stream<PoolWeather>.empty()
-            : Stream.value(pool)),
+        poolsWeatherProvider.overrideWith((ref) => pools == null
+            ? const Stream<PoolsWeather>.empty()
+            : Stream.value(pools)),
       ],
       child: MaterialApp(
         home: Builder(
@@ -129,19 +142,21 @@ void main() {
         'tap, and close on the next', (tester) async {
       _surface(tester);
       await tester.pumpWidget(_screen(
-          chain: _chain(sinceTip: const Duration(seconds: 42)), pool: _pool()));
+          chain: _chain(sinceTip: const Duration(seconds: 42)), pools: _pools()));
       await _settle(tester);
       expect(find.text('CHAIN · STAGENET'), findsOneWidget);
       expect(find.text('EMISSION'), findsOneWidget);
-      expect(find.text('SOQUPOOL'), findsOneWidget);
+      expect(find.text('POOLS'), findsOneWidget);
       expect(find.text('HEIGHT'), findsNothing, reason: 'the chain grid waits');
       expect(find.text('BLOCK REWARD'), findsNothing);
-      expect(find.text('POOL HASHRATE'), findsNothing);
+      expect(find.text('F2POOL'), findsNothing);
       expect(find.text('DIFFICULTY 407.8 · MEMPOOL 3 TX · 10 PEERS'),
           findsOneWidget, reason: 'the chain card\'s second line');
       expect(find.text('100,000 SOQ A BLOCK'), findsOneWidget);
-      expect(find.textContaining('5 MINERS · 52 BLOCKS / HR · '), findsOneWidget,
-          reason: 'the pool card\'s line: miners, blocks an hour, hashrate');
+      expect(find.text('F2POOL 72% · SQ1PSJVU5Z…ZYFC2N 11% · 4 MORE'),
+          findsOneWidget,
+          reason: 'the pools card\'s line: the two biggest shares, the rest');
+      expect(find.text('6 MINING'), findsOneWidget);
 
       await tester.tap(find.byKey(const ValueKey('card chain')));
       await _settle(tester);
@@ -153,10 +168,10 @@ void main() {
       await _settle(tester);
       expect(find.text('HEIGHT'), findsNothing, reason: 'a second tap closes');
 
-      await tester.tap(find.byKey(const ValueKey('card pool')));
+      await tester.tap(find.byKey(const ValueKey('card pools')));
       await _settle(tester);
-      expect(find.text('POOL HASHRATE'), findsOneWidget);
-      expect(find.text('1,324'), findsOneWidget, reason: 'blocks in 24 h');
+      expect(find.text('F2POOL'), findsOneWidget);
+      expect(find.text('104 BLOCKS'), findsOneWidget, reason: 'blocks in 24 h');
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
     });
@@ -166,7 +181,7 @@ void main() {
       _surface(tester);
       await tester.pumpWidget(_screen(
           chain: _chain(sinceTip: const Duration(seconds: 42)),
-          pool: _pool(),
+          pools: _pools(),
           reduced: true));
       await _settle(tester);
       await tester.tap(find.byKey(const ValueKey('card chain')));
@@ -185,12 +200,13 @@ void main() {
       _surface(tester);
       final handle = tester.ensureSemantics();
       await tester.pumpWidget(_screen(
-          chain: _chain(sinceTip: const Duration(seconds: 42)), pool: _pool()));
+          chain: _chain(sinceTip: const Duration(seconds: 42)), pools: _pools()));
       await _settle(tester);
       for (final (id, start) in [
         ('chain', 'CHAIN · STAGENET. LAST BLOCK '),
         ('emission', 'EMISSION. 100,000 SOQ A BLOCK. NEXT 50,000 SOQ IN '),
-        ('pool', 'SOQUPOOL. 5 MINERS · 52 BLOCKS / HR · '),
+        ('pools', 'POOLS. F2POOL 72% · SQ1PSJVU5Z…ZYFC2N 11% · 4 MORE. '
+            'BLOCKS 64,458 TO 65,897 · MAINNET. '),
       ]) {
         final node = tester.getSemantics(find.byKey(ValueKey('card $id')));
         expect(node.label, startsWith(start), reason: id);
@@ -219,44 +235,46 @@ void main() {
   });
 
   group('the weather in words', () {
-    testWidgets('reads the chain against its target and the pool', (tester) async {
+    testWidgets('reads the chain against its target and the pools', (tester) async {
       _surface(tester);
       await tester.pumpWidget(_screen(
-          chain: _chain(sinceTip: const Duration(seconds: 42)), pool: _pool()));
+          chain: _chain(sinceTip: const Duration(seconds: 42)), pools: _pools()));
       await _settle(tester);
-      expect(_weatherText(tester),
-          'Blocks are arriving on time. SOQUPOOL is operational with 5 miners.');
+      expect(
+          _weatherText(tester),
+          'Blocks are arriving on time. 6 pools found the last 145 blocks; '
+          'F2Pool found 72%.');
       await tester.pumpWidget(const SizedBox.shrink());
 
       await tester.pumpWidget(_screen(
           chain: _chain(sinceTip: const Duration(seconds: 95)),
-          pool: _pool(miners: 1)));
+          pools: _pools(shares: const [PoolShare(name: 'F2Pool', blocks: 9)])));
       await _settle(tester);
       expect(_weatherText(tester),
-          'The next block is a little late. SOQUPOOL is operational with 1 miner.');
+          'The next block is a little late. F2Pool found all of the last 9 blocks.');
       await tester.pumpWidget(const SizedBox.shrink());
 
       await tester.pumpWidget(_screen(
           chain: _chain(sinceTip: const Duration(seconds: 150)),
-          pool: _pool(overall: 'degraded')));
+          pools: _pools(shares: const [])));
       await _settle(tester);
-      expect(_weatherText(tester),
-          'The next block is running late. SOQUPOOL reports degraded.');
+      expect(_weatherText(tester), 'The next block is running late.',
+          reason: 'a day with no blocks grouped: nothing to say of the pools');
       await tester.pumpWidget(const SizedBox.shrink());
     });
 
     testWidgets('says nothing about a chain it has not read: offline, '
-        'syncing, or a stale figure; and nothing about a pool that did not '
-        'answer', (tester) async {
+        'syncing, or a stale figure; and nothing about pools that were not '
+        'read', (tester) async {
       _surface(tester);
       await tester.pumpWidget(
-          _screen(chain: ChainWeather.unreachable(DateTime.now()), pool: _pool()));
+          _screen(chain: ChainWeather.unreachable(DateTime.now()), pools: _pools()));
       await _settle(tester);
       expect(find.byKey(const ValueKey('weather line')), findsNothing,
           reason: 'offline Stagenet: no sentence, and no pool sentence either');
       await tester.pumpWidget(const SizedBox.shrink());
 
-      await tester.pumpWidget(_screen(chain: null, pool: _pool()));
+      await tester.pumpWidget(_screen(chain: null, pools: _pools()));
       await _settle(tester);
       expect(find.byKey(const ValueKey('weather line')), findsNothing,
           reason: 'syncing: the card says so, the sentence does not');
@@ -272,18 +290,19 @@ void main() {
         peers: 10,
         fetchedAt: DateTime.now().subtract(const Duration(minutes: 10)),
       );
-      await tester.pumpWidget(_screen(chain: stale, pool: _pool()));
+      await tester.pumpWidget(_screen(chain: stale, pools: _pools()));
       await _settle(tester);
-      expect(_weatherText(tester), 'SOQUPOOL is operational with 5 miners.',
-          reason: 'a figure older than the poll period: the pool alone');
+      expect(_weatherText(tester),
+          '6 pools found the last 145 blocks; F2Pool found 72%.',
+          reason: 'a figure older than the poll period: the pools alone');
       await tester.pumpWidget(const SizedBox.shrink());
 
       await tester.pumpWidget(_screen(
           chain: _chain(sinceTip: const Duration(seconds: 42)),
-          pool: PoolWeather(reachable: false, fetchedAt: DateTime.now())));
+          pools: PoolsWeather(reachable: false, fetchedAt: DateTime.now())));
       await _settle(tester);
       expect(_weatherText(tester), 'Blocks are arriving on time.',
-          reason: 'the pool did not answer: its card says so, not the sentence');
+          reason: 'the explorer did not answer: the card says so, not the sentence');
       await tester.pumpWidget(const SizedBox.shrink());
     });
   });

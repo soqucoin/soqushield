@@ -103,8 +103,8 @@ Widget _scoped(WalletState wallet, Widget child) => ProviderScope(
             NetworkStats(blocks: 1234, peers: 8, reachable: true))),
         chainWeatherProvider.overrideWith((ref) =>
             Stream.value(ChainWeather.unreachable(DateTime(2026, 10, 6)))),
-        poolWeatherProvider.overrideWith((ref) => Stream.value(
-            PoolWeather(reachable: false, fetchedAt: DateTime(2026, 10, 6)))),
+        poolsWeatherProvider.overrideWith((ref) => Stream.value(
+            PoolsWeather(reachable: false, fetchedAt: DateTime(2026, 10, 6)))),
       ],
       child: MaterialApp(home: child),
     );

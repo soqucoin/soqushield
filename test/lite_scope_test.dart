@@ -57,7 +57,6 @@ const _allowedHosts = {
   'electrum.soqu.org',
   'explorer.soqu.org',
   'soqushield-api.research-c26.workers.dev',
-  'api.soqupool.com',
   'discord.gg',
   'soqu.org',
 };
